@@ -2,11 +2,13 @@
 # -*- coding: utf-8 -*-
 
 import os
+import json
 import pandas as pd
 import numpy as np
 import math
 from gensim.models import Word2Vec
 from collections import defaultdict
+from datetime import datetime
 from tqdm import tqdm
 
 # 配置路径
@@ -16,7 +18,7 @@ DEFAULT_DATA_DIRS = [
     os.path.join(REPO_ROOT, "convert_dataset"),
     os.path.join(REPO_ROOT, "converted_dataset"),
 ]
-OUTPUT_DIR = "./output"
+OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
 
 
 def resolve_data_dir():
@@ -214,6 +216,43 @@ def recommend(user_id, user_history_index, item_sim_index, last_n=20, top_k_sim=
     recs = sorted(candidates.items(), key=lambda x: x[1], reverse=True)[:top_n_rec]
     return [mid for mid, score in recs]
 
+
+def save_experiment_results(metrics, metadata):
+    """保存实验指标到 output 目录；该目录已在 .gitignore 中忽略。"""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    payload = {
+        "module": "itemcf",
+        "timestamp": timestamp,
+        "data_dir": DATA_DIR,
+        "metadata": metadata,
+        "metrics": metrics,
+    }
+
+    json_path = os.path.join(OUTPUT_DIR, f"experiment_itemcf_{timestamp}.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    csv_path = os.path.join(OUTPUT_DIR, "experiment_metrics.csv")
+    rows = []
+    for k, values in metrics.items():
+        rows.append(
+            {
+                "timestamp": timestamp,
+                "module": "itemcf",
+                "data_dir": DATA_DIR,
+                "train_samples": metadata["train_samples"],
+                "test_samples": metadata["test_samples"],
+                "num_movies": metadata["num_movies"],
+                "k": k,
+                "hr": values["hr"],
+                "ndcg": values["ndcg"],
+            }
+        )
+    result_df = pd.DataFrame(rows)
+    result_df.to_csv(csv_path, mode="a", header=not os.path.exists(csv_path), index=False, encoding="utf-8")
+    print(f"Experiment results saved to {json_path}")
+
 def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10]):
     """计算 HR@K 和 NDCG@K"""
     print("\nCalculating metrics...")
@@ -249,12 +288,15 @@ def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10]
     print("-" * 40)
     print("Evaluation Results:")
     print("-" * 40)
+    metrics = {}
     for k in ks:
-        hr = hits[k] / total_users
-        ndcg = ndcgs[k] / total_users
+        hr = hits[k] / total_users if total_users else 0.0
+        ndcg = ndcgs[k] / total_users if total_users else 0.0
+        metrics[f"@{k}"] = {"hr": hr, "ndcg": ndcg}
         print(f"HR@{k}: {hr:.4f}")
         print(f"NDCG@{k}: {ndcg:.4f}")
     print("-" * 40)
+    return metrics
 
 def main():
     # 1. 加载并划分数据
@@ -273,7 +315,15 @@ def main():
     user_history_index = build_user_history_index(train_df)
     
     # 6. 评估
-    calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10])
+    metrics = calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10])
+    save_experiment_results(
+        metrics,
+        {
+            "train_samples": len(train_df),
+            "test_samples": len(test_df),
+            "num_movies": len(movies),
+        },
+    )
 
 if __name__ == "__main__":
     main()

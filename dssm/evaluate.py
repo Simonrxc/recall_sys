@@ -1,4 +1,6 @@
 import argparse
+import json
+from datetime import datetime
 import torch
 import numpy as np
 import pandas as pd
@@ -12,6 +14,49 @@ try:
     import faiss
 except ImportError:
     faiss = None
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
+
+
+def save_experiment_results(metrics, config, output_dir=OUTPUT_DIR):
+    """保存评估结果到 output 目录；该目录已在 .gitignore 中忽略。"""
+    os.makedirs(output_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    result = {
+        "model": "dssm",
+        "timestamp": timestamp,
+        "config": config,
+        "metrics": metrics,
+    }
+
+    json_path = os.path.join(output_dir, f"experiment_{timestamp}.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+
+    rows = []
+    for k, values in metrics["by_k"].items():
+        rows.append(
+            {
+                "timestamp": timestamp,
+                "model": "dssm",
+                "k": k,
+                "hr": values["hr"],
+                "ndcg": values["ndcg"],
+                "total_users": metrics["total_users"],
+                "model_path": config["model_path"],
+                "embed_dim": config["embed_dim"],
+                "device": config["device"],
+                "retrieval_backend": config["retrieval_backend"],
+                "num_users": config["num_users"],
+                "num_movies": config["num_movies"],
+                "num_ratings": config["num_ratings"],
+            }
+        )
+
+    csv_path = os.path.join(output_dir, "experiment_metrics.csv")
+    pd.DataFrame(rows).to_csv(csv_path, mode="a", header=not os.path.exists(csv_path), index=False)
+    print(f"Experiment results saved to {json_path} and {csv_path}")
 
 def load_and_split_data():
     """
@@ -215,12 +260,31 @@ def evaluate(args):
     print("-" * 40)
     print("DSSM Evaluation Results:")
     print("-" * 40)
+    by_k = {}
     for k in ks:
         hr = hits[k] / total
         ndcg = ndcgs[k] / total
+        by_k[k] = {"hr": hr, "ndcg": ndcg}
         print(f"HR@{k}: {hr:.4f}")
         print(f"NDCG@{k}: {ndcg:.4f}")
     print("-" * 40)
+
+    metrics = {
+        "total_users": total,
+        "by_k": by_k,
+    }
+    config = {
+        "data_dir": getattr(__import__("dataset"), "DATA_DIR", None),
+        "model_path": args.model_path,
+        "embed_dim": args.embed_dim,
+        "device": args.device,
+        "retrieval_backend": "faiss" if faiss else "numpy",
+        "num_users": len(users),
+        "num_movies": len(movies),
+        "num_ratings": len(ratings),
+        "num_test_users": len(test_df),
+    }
+    save_experiment_results(metrics, config)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

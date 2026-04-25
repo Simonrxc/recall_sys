@@ -2,12 +2,14 @@
 # -*- coding: utf-8 -*-
 
 import os
+import json
 import pandas as pd
 import numpy as np
 import math
 from collections import defaultdict
 from tqdm import tqdm
 import multiprocessing as mp
+from datetime import datetime
 
 # 配置路径
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +34,7 @@ def resolve_data_dir():
 
 
 DATA_DIR = resolve_data_dir()
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 
 def load_and_split_data():
     """
@@ -171,6 +174,41 @@ def recommend(user_id, user_sim_index, user_item_history, user_item_set, top_k_s
     recs = sorted(candidates.items(), key=lambda x: x[1], reverse=True)[:top_n_rec]
     return [mid for mid, score in recs]
 
+def save_experiment_results(metrics, metadata, output_dir=OUTPUT_DIR):
+    """保存评估实验数据到 output 目录，该目录已被 .gitignore 忽略。"""
+    os.makedirs(output_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    result = {
+        "model": "usercf",
+        "timestamp": timestamp,
+        "metadata": metadata,
+        "metrics": metrics,
+    }
+    json_path = os.path.join(output_dir, f"experiment_{timestamp}.json")
+    csv_path = os.path.join(output_dir, "experiment_metrics.csv")
+
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+
+    row = {
+        "timestamp": timestamp,
+        "model": "usercf",
+        **metadata,
+    }
+    for k, values in metrics.items():
+        row[f"HR@{k}"] = values["hr"]
+        row[f"NDCG@{k}"] = values["ndcg"]
+
+    pd.DataFrame([row]).to_csv(
+        csv_path,
+        mode="a",
+        header=not os.path.exists(csv_path),
+        index=False,
+        encoding="utf-8",
+    )
+    print(f"Experiment data saved to {json_path}")
+
+
 def calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set, ks=[3, 5, 10]):
     """计算指标"""
     print("\nCalculating metrics...")
@@ -207,12 +245,15 @@ def calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set,
     print("-" * 40)
     print("UserCF Evaluation Results:")
     print("-" * 40)
+    metrics = {}
     for k in ks:
         hr = hits[k] / total_users
         ndcg = ndcgs[k] / total_users
+        metrics[k] = {"hr": hr, "ndcg": ndcg}
         print(f"HR@{k}: {hr:.4f}")
         print(f"NDCG@{k}: {ndcg:.4f}")
     print("-" * 40)
+    return metrics
 
 def main():
     # 1. 加载并划分数据
@@ -222,7 +263,20 @@ def main():
     user_sim_index, user_item_history, user_item_set = build_indices(train_df, sim_top_k=100)
     
     # 3. 评估
-    calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set, ks=[3, 5, 10])
+    ks = [3, 5, 10]
+    metrics = calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set, ks=ks)
+    save_experiment_results(
+        metrics,
+        metadata={
+            "data_dir": DATA_DIR,
+            "train_samples": len(train_df),
+            "test_samples": len(test_df),
+            "sim_top_k": 100,
+            "top_k_sim": 50,
+            "last_n": 50,
+            "ks": "|".join(map(str, ks)),
+        },
+    )
 
 if __name__ == "__main__":
     main()
