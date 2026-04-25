@@ -249,25 +249,22 @@ def save_experiment_results(metrics, metadata):
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
     csv_path = os.path.join(OUTPUT_DIR, f"experiment_itemcf_{timestamp}.csv")
-    rows = []
+    row = {
+        "timestamp": timestamp,
+        "model": "itemcf",
+        "dataset_name": metadata["dataset_name"],
+        "source_dataset": metadata["source_dataset"],
+        "data_dir": DATA_DIR,
+        "train_samples": metadata["train_samples"],
+        "test_samples": metadata["test_samples"],
+        "num_movies": metadata["num_movies"],
+    }
     for k, values in metrics.items():
-        rows.append(
-            {
-                "timestamp": timestamp,
-                "module": "itemcf",
-                "dataset_name": metadata["dataset_name"],
-                "source_dataset": metadata["source_dataset"],
-                "data_dir": DATA_DIR,
-                "train_samples": metadata["train_samples"],
-                "test_samples": metadata["test_samples"],
-                "num_movies": metadata["num_movies"],
-                "k": k,
-                "hr": values["hr"],
-                "ndcg": values["ndcg"],
-            }
-        )
-    result_df = pd.DataFrame(rows)
-    result_df.to_csv(csv_path, index=False, encoding="utf-8")
+        k_label = str(k).lstrip("@")
+        row[f"HR@{k_label}"] = values["hr"]
+        row[f"NDCG@{k_label}"] = values["ndcg"]
+
+    pd.DataFrame([row]).to_csv(csv_path, index=False, encoding="utf-8")
     print(f"Experiment results saved to {json_path} and {csv_path}")
 
 def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10]):
