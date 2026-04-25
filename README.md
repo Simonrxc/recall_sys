@@ -11,7 +11,7 @@ curl -L -o dataset/ml-10m.zip https://files.grouplens.org/datasets/movielens/ml-
 curl -L -o dataset/ml-20m.zip https://files.grouplens.org/datasets/movielens/ml-20m.zip
 curl -L -o dataset/ml-25m.zip https://files.grouplens.org/datasets/movielens/ml-25m.zip
 ```
-## 处理数据集
+## 处理任一数据集
 ```bash
 python convert_dataset.py -d ml-1m
 python convert_dataset.py
@@ -27,4 +27,10 @@ python itemcf/evaluate.py
 ```bash
 python usercf/user_cf.py
 python usercf/evaluate.py
+```
+
+## 运行 dssm
+```bash
+python dssm/train.py
+python dssm/evaluate.py
 ```
