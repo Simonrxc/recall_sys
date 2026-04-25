@@ -50,31 +50,27 @@ def save_experiment_results(metrics, config, output_dir=OUTPUT_DIR):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
-    rows = []
+    row = {
+        "timestamp": timestamp,
+        "model": "dssm",
+        "dataset_name": config["dataset_name"],
+        "source_dataset": config.get("source_dataset"),
+        "data_dir": config["data_dir"],
+        "model_path": config["model_path"],
+        "embed_dim": config["embed_dim"],
+        "device": config["device"],
+        "retrieval_backend": config["retrieval_backend"],
+        "total_users": metrics["total_users"],
+        "num_users": config["num_users"],
+        "num_movies": config["num_movies"],
+        "num_ratings": config["num_ratings"],
+    }
     for k, values in metrics["by_k"].items():
-        rows.append(
-            {
-                "timestamp": timestamp,
-                "model": "dssm",
-                "k": k,
-                "hr": values["hr"],
-                "ndcg": values["ndcg"],
-                "total_users": metrics["total_users"],
-                "dataset_name": config["dataset_name"],
-                "source_dataset": config.get("source_dataset"),
-                "data_dir": config["data_dir"],
-                "model_path": config["model_path"],
-                "embed_dim": config["embed_dim"],
-                "device": config["device"],
-                "retrieval_backend": config["retrieval_backend"],
-                "num_users": config["num_users"],
-                "num_movies": config["num_movies"],
-                "num_ratings": config["num_ratings"],
-            }
-        )
+        row[f"HR@{k}"] = values["hr"]
+        row[f"NDCG@{k}"] = values["ndcg"]
 
     csv_path = os.path.join(output_dir, f"experiment_dssm_{timestamp}.csv")
-    pd.DataFrame(rows).to_csv(csv_path, index=False)
+    pd.DataFrame([row]).to_csv(csv_path, index=False)
     print(f"Experiment results saved to {json_path} and {csv_path}")
 
 def load_and_split_data():
