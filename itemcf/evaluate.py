@@ -248,7 +248,7 @@ def save_experiment_results(metrics, metadata):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
-    csv_path = os.path.join(OUTPUT_DIR, "experiment_metrics.csv")
+    csv_path = os.path.join(OUTPUT_DIR, f"experiment_itemcf_{timestamp}.csv")
     rows = []
     for k, values in metrics.items():
         rows.append(
@@ -267,8 +267,8 @@ def save_experiment_results(metrics, metadata):
             }
         )
     result_df = pd.DataFrame(rows)
-    result_df.to_csv(csv_path, mode="a", header=not os.path.exists(csv_path), index=False, encoding="utf-8")
-    print(f"Experiment results saved to {json_path}")
+    result_df.to_csv(csv_path, index=False, encoding="utf-8")
+    print(f"Experiment results saved to {json_path} and {csv_path}")
 
 def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10]):
     """计算 HR@K 和 NDCG@K"""

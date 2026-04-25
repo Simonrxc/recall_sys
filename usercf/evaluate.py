@@ -199,8 +199,8 @@ def save_experiment_results(metrics, metadata, output_dir=OUTPUT_DIR):
         "metadata": metadata,
         "metrics": metrics,
     }
-    json_path = os.path.join(output_dir, f"experiment_{timestamp}.json")
-    csv_path = os.path.join(output_dir, "experiment_metrics.csv")
+    json_path = os.path.join(output_dir, f"experiment_usercf_{timestamp}.json")
+    csv_path = os.path.join(output_dir, f"experiment_usercf_{timestamp}.csv")
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
@@ -216,12 +216,12 @@ def save_experiment_results(metrics, metadata, output_dir=OUTPUT_DIR):
 
     pd.DataFrame([row]).to_csv(
         csv_path,
-        mode="a",
-        header=not os.path.exists(csv_path),
+        mode="w",
+        header=True,
         index=False,
         encoding="utf-8",
     )
-    print(f"Experiment data saved to {json_path}")
+    print(f"Experiment data saved to {json_path} and {csv_path}")
 
 
 def calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set, ks=[3, 5, 10]):

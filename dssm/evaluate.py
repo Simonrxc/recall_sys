@@ -46,7 +46,7 @@ def save_experiment_results(metrics, config, output_dir=OUTPUT_DIR):
         "metrics": metrics,
     }
 
-    json_path = os.path.join(output_dir, f"experiment_{timestamp}.json")
+    json_path = os.path.join(output_dir, f"experiment_dssm_{timestamp}.json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
@@ -73,8 +73,8 @@ def save_experiment_results(metrics, config, output_dir=OUTPUT_DIR):
             }
         )
 
-    csv_path = os.path.join(output_dir, "experiment_metrics.csv")
-    pd.DataFrame(rows).to_csv(csv_path, mode="a", header=not os.path.exists(csv_path), index=False)
+    csv_path = os.path.join(output_dir, f"experiment_dssm_{timestamp}.csv")
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
     print(f"Experiment results saved to {json_path} and {csv_path}")
 
 def load_and_split_data():
