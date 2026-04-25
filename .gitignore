@@ -2,3 +2,5 @@ dataset/
 .output
 converted_dataset/
 output/
+*.pth
+__pycache__/
