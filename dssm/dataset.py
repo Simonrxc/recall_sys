@@ -7,7 +7,28 @@ from sklearn.preprocessing import LabelEncoder
 import random
 from tqdm import tqdm
 
-DATA_DIR = "../dataset/ml-1m"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+DEFAULT_DATA_DIRS = [
+    os.path.join(REPO_ROOT, "convert_dataset"),
+    os.path.join(REPO_ROOT, "converted_dataset"),
+]
+
+
+def resolve_data_dir():
+    """定位 convert_dataset.py 生成的统一数据目录。"""
+    env_data_dir = os.environ.get("DSSM_DATA_DIR")
+    if env_data_dir:
+        return os.path.abspath(env_data_dir)
+
+    for data_dir in DEFAULT_DATA_DIRS:
+        if os.path.isdir(data_dir):
+            return data_dir
+
+    return DEFAULT_DATA_DIRS[0]
+
+
+DATA_DIR = resolve_data_dir()
 
 class MovieLensDataset(Dataset):
     def __init__(self, ratings, users, movies, mode='pointwise', neg_ratio=3, margin=0.2):
@@ -42,16 +63,18 @@ class MovieLensDataset(Dataset):
         users['UserID_idx'] = self.user_encoder.fit_transform(users['UserID'])
         self.num_users = len(self.user_encoder.classes_)
         
-        # 编码 Gender (One-hot 准备)
-        gender_map = {'M': 0, 'F': 1}
-        users['Gender_idx'] = users['Gender'].map(gender_map)
-        
-        # 编码 Age (已经是分桶的，映射到 0-6)
-        age_map = {1: 0, 18: 1, 25: 2, 35: 3, 45: 4, 50: 5, 56: 6}
-        users['Age_idx'] = users['Age'].map(age_map)
-        
-        # 编码 Occupation
-        users['Occupation_idx'] = users['Occupation']  # 已经是 0-20
+        # 统一转换后的数据可能来自不同 MovieLens 版本，分类特征统一用 LabelEncoder。
+        self.gender_encoder = LabelEncoder()
+        users['Gender_idx'] = self.gender_encoder.fit_transform(users['Gender'].astype(str))
+        self.num_genders = len(self.gender_encoder.classes_)
+
+        self.age_encoder = LabelEncoder()
+        users['Age_idx'] = self.age_encoder.fit_transform(users['Age'].astype(str))
+        self.num_ages = len(self.age_encoder.classes_)
+
+        self.occupation_encoder = LabelEncoder()
+        users['Occupation_idx'] = self.occupation_encoder.fit_transform(users['Occupation'].astype(str))
+        self.num_occupations = len(self.occupation_encoder.classes_)
         
         # 编码 Zip-code
         self.zip_encoder = LabelEncoder()
@@ -168,11 +191,55 @@ class MovieLensDataset(Dataset):
             }
 
 def load_data():
-    users = pd.read_csv(os.path.join(DATA_DIR, "users.dat"), sep="::", engine="python", 
-                        names=["UserID", "Gender", "Age", "Occupation", "Zip-code"], encoding="latin-1")
-    movies = pd.read_csv(os.path.join(DATA_DIR, "movies.dat"), sep="::", engine="python", 
-                         names=["MovieID", "Title", "Genres"], encoding="latin-1")
-    ratings = pd.read_csv(os.path.join(DATA_DIR, "ratings.dat"), sep="::", engine="python", 
-                          names=["UserID", "MovieID", "Rating", "Timestamp"], encoding="latin-1")
+    """加载 convert_dataset.py 输出的统一 CSV 数据。"""
+    print(f"Loading converted data from {DATA_DIR}...")
+    users_path = os.path.join(DATA_DIR, "users.csv")
+    movies_path = os.path.join(DATA_DIR, "movies.csv")
+    ratings_path = os.path.join(DATA_DIR, "ratings.csv")
+
+    missing_files = [
+        path for path in [users_path, movies_path, ratings_path]
+        if not os.path.exists(path)
+    ]
+    if missing_files:
+        missing = ", ".join(missing_files)
+        raise FileNotFoundError(
+            f"未找到转换后的数据文件: {missing}\n"
+            "请先运行: python convert_dataset.py -o convert_dataset"
+        )
+
+    users = pd.read_csv(users_path).rename(
+        columns={
+            "user_id": "UserID",
+            "gender": "Gender",
+            "age": "Age",
+            "occupation": "Occupation",
+            "zip_code": "Zip-code",
+        }
+    )
+    movies = pd.read_csv(movies_path).rename(
+        columns={
+            "movie_id": "MovieID",
+            "title": "Title",
+            "genres": "Genres",
+        }
+    )
+    ratings = pd.read_csv(ratings_path).rename(
+        columns={
+            "user_id": "UserID",
+            "movie_id": "MovieID",
+            "rating": "Rating",
+            "timestamp": "Timestamp",
+        }
+    )
+
+    users = users[["UserID", "Gender", "Age", "Occupation", "Zip-code"]].copy()
+    movies = movies[["MovieID", "Title", "Genres"]].copy()
+    ratings = ratings[["UserID", "MovieID", "Rating", "Timestamp"]].copy()
+    users["Gender"] = users["Gender"].fillna("Unknown").astype(str)
+    users["Age"] = users["Age"].fillna(0)
+    users["Occupation"] = users["Occupation"].fillna("Unknown").astype(str)
+    users["Zip-code"] = users["Zip-code"].fillna("").astype(str)
+    movies["Genres"] = movies["Genres"].fillna("(no genres listed)").astype(str)
     return users, movies, ratings
 

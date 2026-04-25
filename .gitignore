@@ -1,5 +1,4 @@
 dataset/
 .outputdataset/
 .output
-output/
-converted_dataset/
+converted_dataset
