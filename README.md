@@ -22,3 +22,9 @@ python convert_dataset.py
 python itemcf/item_content_based.py
 python itemcf/evaluate.py
 ```
+
+## 运行 UserCF（基于用户）
+```bash
+python usercf/user_cf.py
+python usercf/evaluate.py
+```
