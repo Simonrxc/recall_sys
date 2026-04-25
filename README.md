@@ -1,16 +1,28 @@
-# Recall System
+# 数据准备与运行说明
 
 本项目包含 MovieLens 数据转换，以及 UserCF、ItemCF、User2Emb、DSSM 等召回模型示例。
 
-## 数据准备
-
-先将已解压的 MovieLens 数据集转换为统一格式：
+## 下载数据集并解压
 
 ```bash
-python convert_dataset.py -o convert_dataset
+mkdir dataset
+
+curl -L -o dataset/ml-latest-small.zip https://files.grouplens.org/datasets/movielens/ml-latest-small.zip
+curl -L -o dataset/ml-100k.zip https://files.grouplens.org/datasets/movielens/ml-100k.zip
+curl -L -o dataset/ml-1m.zip https://files.grouplens.org/datasets/movielens/ml-1m.zip
+curl -L -o dataset/ml-10m.zip https://files.grouplens.org/datasets/movielens/ml-10m.zip
+curl -L -o dataset/ml-20m.zip https://files.grouplens.org/datasets/movielens/ml-20m.zip
+curl -L -o dataset/ml-25m.zip https://files.grouplens.org/datasets/movielens/ml-25m.zip
 ```
 
-转换后默认输出目录为：
+## 处理任一数据集
+
+```bash
+python convert_dataset.py -d ml-1m
+python convert_dataset.py
+```
+
+默认会输出统一格式数据到：
 
 ```text
 convert_dataset/
@@ -25,7 +37,21 @@ convert_dataset/
 - `user_sequences.csv`
 - `metadata.json`
 
-## DSSM 模型运行选项
+## 运行 ItemCF（基于内容）
+
+```bash
+python itemcf/item_content_based.py
+python itemcf/evaluate.py
+```
+
+## 运行 UserCF（基于用户）
+
+```bash
+python usercf/user_cf.py
+python usercf/evaluate.py
+```
+
+## 运行 DSSM
 
 DSSM 默认读取根目录下的 `convert_dataset/`。如果需要指定其他转换后目录，可以设置环境变量：
 
