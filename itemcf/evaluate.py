@@ -1,0 +1,249 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import os
+import pandas as pd
+import numpy as np
+import math
+from gensim.models import Word2Vec
+from collections import defaultdict
+from tqdm import tqdm
+
+# 配置路径
+DATA_DIR = "../dataset/ml-1m"
+OUTPUT_DIR = "./output"
+
+def load_and_split_data():
+    """
+    加载数据并按 Leave-One-Out 方式划分为训练集和测试集
+    """
+    print("Loading and splitting data...")
+    
+    # 加载电影数据
+    movies = pd.read_csv(
+        os.path.join(DATA_DIR, "movies.dat"),
+        sep="::",
+        engine="python",
+        names=["MovieID", "Title", "Genres"],
+        encoding="latin-1"
+    )
+    
+    # 加载评分数据
+    ratings = pd.read_csv(
+        os.path.join(DATA_DIR, "ratings.dat"),
+        sep="::",
+        engine="python",
+        names=["UserID", "MovieID", "Rating", "Timestamp"],
+        encoding="latin-1"
+    )
+    
+    # 按用户和时间排序
+    ratings = ratings.sort_values(by=['UserID', 'Timestamp'])
+    
+    train_data = []
+    test_data = []
+    
+    # 按用户分组划分
+    for user_id, group in tqdm(ratings.groupby('UserID'), desc="Splitting data"):
+        # 转换为列表: [(MovieID, Rating, Timestamp), ...]
+        user_history = group[['MovieID', 'Rating', 'Timestamp']].values.tolist()
+        
+        if len(user_history) < 2:
+            # 如果交互少于2个，全部放入训练集（无法做测试）
+            train_data.extend([[user_id, *item] for item in user_history])
+            continue
+            
+        # 最后一个作为测试集
+        test_item = user_history[-1]
+        test_data.append([user_id, *test_item])
+        
+        # 其余作为训练集
+        train_items = user_history[:-1]
+        train_data.extend([[user_id, *item] for item in train_items])
+        
+    # 转换为 DataFrame
+    train_df = pd.DataFrame(train_data, columns=['UserID', 'MovieID', 'Rating', 'Timestamp'])
+    test_df = pd.DataFrame(test_data, columns=['UserID', 'MovieID', 'Rating', 'Timestamp'])
+    
+    print(f"Train samples: {len(train_df)}, Test samples: {len(test_df)}")
+    return movies, train_df, test_df
+
+def train_genre_embeddings(movies, vector_size=32, window=5, min_count=1):
+    """训练 Genre Word2vec (复用之前的逻辑)"""
+    print("Training Genre Word2vec...")
+    sentences = [genres.split('|') for genres in movies['Genres']]
+    model = Word2Vec(sentences, vector_size=vector_size, window=window, min_count=min_count, workers=4, seed=42)
+    genre_vectors = {genre: model.wv[genre] for genre in model.wv.index_to_key}
+    return genre_vectors
+
+def compute_movie_embeddings(movies, genre_vectors, vector_size=32):
+    """计算电影 Embedding (复用之前的逻辑)"""
+    print("Computing Movie Embeddings...")
+    movie_embeddings = {}
+    for _, row in movies.iterrows():
+        movie_id = row['MovieID']
+        genres = row['Genres'].split('|')
+        vectors = [genre_vectors[g] for g in genres if g in genre_vectors]
+        if vectors:
+            avg_vector = np.mean(vectors, axis=0)
+            norm = np.linalg.norm(avg_vector)
+            if norm > 0:
+                avg_vector = avg_vector / norm
+            movie_embeddings[movie_id] = avg_vector
+        else:
+            movie_embeddings[movie_id] = np.zeros(vector_size)
+    return movie_embeddings
+
+def build_item_sim_index(movie_embeddings, top_k=50):
+    """建立 Item-Item 相似度索引"""
+    print("Building Item-Item Similarity Index...")
+    movie_ids = list(movie_embeddings.keys())
+    # 建立 ID 映射以便使用矩阵运算
+    id_to_idx = {mid: i for i, mid in enumerate(movie_ids)}
+    
+    embedding_matrix = np.array([movie_embeddings[mid] for mid in movie_ids])
+    
+    # 计算全量相似度矩阵
+    similarity_matrix = np.dot(embedding_matrix, embedding_matrix.T)
+    
+    item_sim_index = {}
+    
+    for i, mid in enumerate(tqdm(movie_ids, desc="Indexing items")):
+        scores = similarity_matrix[i]
+        # 获取 top_k 相似 (排除自己)
+        # argsort 是升序，取最后 k+1 个，然后反转
+        top_indices = np.argsort(scores)[-(top_k+1):][::-1]
+        
+        similar_items = []
+        for idx in top_indices:
+            sim_mid = movie_ids[idx]
+            if sim_mid != mid:
+                similar_items.append((sim_mid, float(scores[idx])))
+        
+        item_sim_index[mid] = similar_items[:top_k]
+        
+    return item_sim_index
+
+def build_user_history_index(train_df):
+    """建立用户历史索引 (只基于训练集)"""
+    print("Building User History Index from Train Set...")
+    # 按时间倒序排序，方便取 last-n
+    train_df = train_df.sort_values(by=['UserID', 'Timestamp'], ascending=[True, False])
+    
+    user_history_index = defaultdict(list)
+    
+    # 转换为 numpy 迭代更快
+    data = train_df[['UserID', 'MovieID', 'Rating']].values
+    
+    for row in data:
+        uid, mid, rating = int(row[0]), int(row[1]), float(row[2])
+        user_history_index[uid].append((mid, rating))
+        
+    return user_history_index
+
+def recommend(user_id, user_history_index, item_sim_index, last_n=20, top_k_sim=20, top_n_rec=100):
+    """
+    核心推荐逻辑
+    1. 获取用户 last-n 历史
+    2. 对每个历史物品找 top-k 相似物品
+    3. 加权打分
+    4. 返回 top-n 推荐
+    """
+    if user_id not in user_history_index:
+        return []
+    
+    # 1. 获取用户近期感兴趣的物品列表 (last-n)
+    history = user_history_index[user_id][:last_n]
+    
+    candidates = defaultdict(float)
+    watched_items = set(mid for mid, _ in user_history_index[user_id])
+    
+    # 2. & 3. 遍历历史物品，找相似物品并打分
+    for hist_mid, hist_rating in history:
+        if hist_mid in item_sim_index:
+            # 取出 top-k 相似物品
+            similar_items = item_sim_index[hist_mid][:top_k_sim]
+            
+            for sim_mid, sim_score in similar_items:
+                # 过滤掉用户已经看过的物品
+                if sim_mid in watched_items:
+                    continue
+                
+                # 4. 预估兴趣分数: 相似度 * 历史评分 (这里简单累加)
+                candidates[sim_mid] += sim_score * hist_rating
+                
+    # 5. 返回分数最高的 top-n
+    recs = sorted(candidates.items(), key=lambda x: x[1], reverse=True)[:top_n_rec]
+    return [mid for mid, score in recs]
+
+def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10]):
+    """计算 HR@K 和 NDCG@K"""
+    print("\nCalculating metrics...")
+    
+    hits = {k: 0 for k in ks}
+    ndcgs = {k: 0 for k in ks}
+    total_users = 0
+    
+    # 遍历测试集
+    test_data = test_df[['UserID', 'MovieID']].values
+    
+    for uid, target_mid in tqdm(test_data, desc="Evaluating"):
+        total_users += 1
+        
+        # 获取推荐列表 (Top 100 足够涵盖最大的 K)
+        max_k = max(ks)
+        rec_list = recommend(uid, user_history_index, item_sim_index, last_n=50, top_k_sim=20, top_n_rec=max_k)
+        
+        # 计算指标
+        for k in ks:
+            # 截取 Top K
+            top_k_recs = rec_list[:k]
+            
+            if target_mid in top_k_recs:
+                # Hit Ratio
+                hits[k] += 1
+                
+                # NDCG
+                rank = top_k_recs.index(target_mid)
+                ndcgs[k] += 1.0 / math.log2(rank + 2)
+                
+    # 输出结果
+    print("-" * 40)
+    print("Evaluation Results:")
+    print("-" * 40)
+    for k in ks:
+        hr = hits[k] / total_users
+        ndcg = ndcgs[k] / total_users
+        print(f"HR@{k}: {hr:.4f}")
+        print(f"NDCG@{k}: {ndcg:.4f}")
+    print("-" * 40)
+
+def main():
+    # 1. 加载并划分数据
+    movies, train_df, test_df = load_and_split_data()
+    
+    # 2. 训练 Genre Embeddings (使用全量 Movies 数据是允许的，因为是 Content Feature)
+    genre_vectors = train_genre_embeddings(movies)
+    
+    # 3. 计算 Movie Embeddings
+    movie_embeddings = compute_movie_embeddings(movies, genre_vectors)
+    
+    # 4. 建立 Item-Item 索引 (基于 Movie Embeddings 计算相似度)
+    item_sim_index = build_item_sim_index(movie_embeddings)
+    
+    # 5. 建立 User History 索引 (只使用训练集!)
+    user_history_index = build_user_history_index(train_df)
+    
+    # 6. 评估
+    calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10])
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+

@@ -1,0 +1,36 @@
+# 任务
+现在我准备对电影数据集做dssm
+# 背景
+1. dataset/ml-1m文件夹中的movies.dat文件的数据是这样的：
+   MovieID                               Title                        Genres
+0        1                    Toy Story (1995)   Animation|Children's|Comedy
+1        2                      Jumanji (1995)  Adventure|Children's|Fantasy
+2. dataset/ml-1m文件夹中的ratings.dat数据前5行:
+   UserID  MovieID  Rating  Timestamp            DateTime
+0       1     1193       5  978300760 2000-12-31 22:12:40
+1       1      661       3  978302109 2000-12-31 22:35:09
+2       1      914       3  978301968 2000-12-31 22:32:48
+3. dataset/ml-1m文件夹中的users.dat数据前5行:
+UserID Gender  Age  Occupation Zip-code
+0       1      F    1          10    48067
+1       2      M   56          16    70072
+2       3      M   25          15    55117
+3       4      M   45           7    02460
+4       5      M   25          20    55455
+
+4. 生成的代码放在dssm文件夹下
+5. 使用python虚拟环境conda activate crx
+# 建立塔的步骤
+1. 从原本的数据集中随机分出一部分用户，作为测试集
+2. 建立【用户塔】，用embedding层把UserID映射到向量，用不同的embedding层把不同的离散特征（Age，Occupation，Zip-code）映射成向量，Gender特征直接使用onehot编码，Age特征进行分桶处理；把这些向量进行concatenate，输入到神经网络，得到用户的表征，用于召回
+3. 建立【物品塔】，用两个embedding层把MovieID和Genres映射到向量；把这些向量进行concatenate，输入到神经网络，得到电影的表征，用于召回
+# 测试dssm的三种训练方法
+1. Pointwise训练
+- 把召回看做二元分类任务。
+- 对于正样本，鼓励cos(a,b)接近+1；对于负样本，鼓励cos(a,b)接近－1。控制正负样本数量为1:3。
+2. Pairwise训练
+- 基本想法：鼓励 cos（a,b+）大于cos(a,b-)
+- 如果cos（a,b+）大于 cos（a,b-）+m’则没有损失。否则损失等于cos（a,b-）+m一cos（a,b+）。
+# 确定负样本
+- 非均抽采样负样本，负样本抽样概率和热门程度（点击次数）正相关
+- 抽样概率与点击次数的0.75次方成正比，

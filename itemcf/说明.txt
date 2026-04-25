@@ -1,0 +1,20 @@
+# 任务
+现在我准备对电影数据集做itemcf
+# 背景
+1. dataset/ml-1m文件夹中的movies.dat文件的数据是这样的：
+   MovieID                               Title                        Genres
+0        1                    Toy Story (1995)   Animation|Children's|Comedy
+1        2                      Jumanji (1995)  Adventure|Children's|Fantasy
+2. dataset/ml-1m文件夹中的ratings.dat数据前5行:
+   UserID  MovieID  Rating  Timestamp            DateTime
+0       1     1193       5  978300760 2000-12-31 22:12:40
+1       1      661       3  978302109 2000-12-31 22:35:09
+2       1      914       3  978301968 2000-12-31 22:32:48
+
+3. 生成的代码放在itemcf文件夹下
+4. 使用python虚拟环境conda activate crx
+# 步骤
+1. 请你写一个代码对Genres这列进行Word2vec，每一行的Generes作为一个句子，产生所有Genres的embedding
+2. 然后得到每个电影的embedding，它由电影的Genres的embedding们求平均计算
+3. 建立【物品到物品】的索引，计算电影之间两两的相似度，对于任意电影，可以快速找到他相似的n个物品
+3. 建立【用户到物品】的索引，可以快速找到他近期感兴趣的电影列表与rating
