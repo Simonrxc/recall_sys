@@ -15,40 +15,84 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # 数据集路径
-DATA_DIR = "../dataset/ml-1m"
-OUTPUT_DIR = "./output"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+DEFAULT_DATA_DIRS = [
+    os.path.join(REPO_ROOT, "convert_dataset"),
+    os.path.join(REPO_ROOT, "converted_dataset"),
+]
+OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
+
+
+def resolve_data_dir():
+    """定位 convert_dataset.py 生成的统一数据目录。"""
+    env_data_dir = os.environ.get("USER2EMB_DATA_DIR") or os.environ.get("RECALL_DATA_DIR")
+    if env_data_dir:
+        return os.path.abspath(env_data_dir)
+
+    for data_dir in DEFAULT_DATA_DIRS:
+        if os.path.isdir(data_dir):
+            return data_dir
+
+    return DEFAULT_DATA_DIRS[0]
+
+
+DATA_DIR = resolve_data_dir()
 
 
 def load_data():
-    """加载 MovieLens 数据集"""
-    print("正在加载数据...")
-    
-    # 加载评分数据
-    ratings = pd.read_csv(
-        os.path.join(DATA_DIR, "ratings.dat"),
-        sep="::",
-        engine="python",
-        names=["UserID", "MovieID", "Rating", "Timestamp"],
-        encoding="latin-1"
+    """加载 convert_dataset.py 输出的统一 CSV 数据。"""
+    print(f"正在从 {DATA_DIR} 加载统一格式数据...")
+    users_path = os.path.join(DATA_DIR, "users.csv")
+    movies_path = os.path.join(DATA_DIR, "movies.csv")
+    ratings_path = os.path.join(DATA_DIR, "ratings.csv")
+
+    missing_files = [
+        path for path in [users_path, movies_path, ratings_path]
+        if not os.path.exists(path)
+    ]
+    if missing_files:
+        missing = ", ".join(missing_files)
+        raise FileNotFoundError(
+            f"未找到转换后的数据文件: {missing}\n"
+            "请先运行: python convert_dataset.py -o convert_dataset"
+        )
+
+    ratings = pd.read_csv(ratings_path).rename(
+        columns={
+            "user_id": "UserID",
+            "movie_id": "MovieID",
+            "rating": "Rating",
+            "timestamp": "Timestamp",
+        }
     )
-    
-    # 加载用户数据
-    users = pd.read_csv(
-        os.path.join(DATA_DIR, "users.dat"),
-        sep="::",
-        engine="python",
-        names=["UserID", "Gender", "Age", "Occupation", "Zip-code"],
-        encoding="latin-1"
+    users = pd.read_csv(users_path).rename(
+        columns={
+            "user_id": "UserID",
+            "gender": "Gender",
+            "age": "Age",
+            "occupation": "Occupation",
+            "zip_code": "Zip-code",
+        }
     )
-    
-    # 加载电影数据
-    movies = pd.read_csv(
-        os.path.join(DATA_DIR, "movies.dat"),
-        sep="::",
-        engine="python",
-        names=["MovieID", "Title", "Genres"],
-        encoding="latin-1"
+    movies = pd.read_csv(movies_path).rename(
+        columns={
+            "movie_id": "MovieID",
+            "title": "Title",
+            "genres": "Genres",
+        }
     )
+
+    ratings = ratings[["UserID", "MovieID", "Rating", "Timestamp"]].copy()
+    users = users[["UserID", "Gender", "Age", "Occupation", "Zip-code"]].copy()
+    movies = movies[["MovieID", "Title", "Genres"]].copy()
+
+    users["Gender"] = users["Gender"].fillna("Unknown").astype(str)
+    users["Age"] = users["Age"].fillna(0)
+    users["Occupation"] = users["Occupation"].fillna("Unknown").astype(str)
+    users["Zip-code"] = users["Zip-code"].fillna("").astype(str)
+    movies["Title"] = movies["Title"].fillna("").astype(str)
+    movies["Genres"] = movies["Genres"].fillna("(no genres listed)").astype(str)
     
     print(f"加载完成: {len(ratings):,} 条评分, {len(users):,} 个用户, {len(movies):,} 部电影")
     return ratings, users, movies
