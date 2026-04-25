@@ -37,6 +37,21 @@ def resolve_data_dir():
 DATA_DIR = resolve_data_dir()
 
 
+def get_dataset_info():
+    """读取转换元信息，标识本次实验使用的是 ml-1m、ml-20m 等哪个数据集。"""
+    metadata_path = os.path.join(DATA_DIR, "metadata.json")
+    source_dataset = None
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            source_dataset = json.load(f).get("source_dataset")
+
+    dataset_name = os.path.basename(os.path.normpath(source_dataset or DATA_DIR))
+    return {
+        "dataset_name": dataset_name,
+        "source_dataset": source_dataset or DATA_DIR,
+    }
+
+
 def load_converted_data():
     """加载转换后的 movies.csv 和 ratings.csv，并映射为算法内部字段名。"""
     movies_path = os.path.join(DATA_DIR, "movies.csv")
@@ -240,6 +255,8 @@ def save_experiment_results(metrics, metadata):
             {
                 "timestamp": timestamp,
                 "module": "itemcf",
+                "dataset_name": metadata["dataset_name"],
+                "source_dataset": metadata["source_dataset"],
                 "data_dir": DATA_DIR,
                 "train_samples": metadata["train_samples"],
                 "test_samples": metadata["test_samples"],
@@ -319,6 +336,7 @@ def main():
     save_experiment_results(
         metrics,
         {
+            **get_dataset_info(),
             "train_samples": len(train_df),
             "test_samples": len(test_df),
             "num_movies": len(movies),

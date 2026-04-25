@@ -36,6 +36,21 @@ def resolve_data_dir():
 DATA_DIR = resolve_data_dir()
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 
+
+def get_dataset_info():
+    """读取转换目录元信息，识别当前实验使用的 MovieLens 数据集版本。"""
+    metadata_path = os.path.join(DATA_DIR, "metadata.json")
+    source_dataset = None
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            source_dataset = json.load(f).get("source_dataset")
+
+    dataset_name = os.path.basename(os.path.normpath(source_dataset or DATA_DIR))
+    return {
+        "dataset_name": dataset_name,
+        "source_dataset": source_dataset or DATA_DIR,
+    }
+
 def load_and_split_data():
     """
     加载数据并按 Leave-One-Out 方式划分为训练集和测试集
@@ -268,6 +283,7 @@ def main():
     save_experiment_results(
         metrics,
         metadata={
+            **get_dataset_info(),
             "data_dir": DATA_DIR,
             "train_samples": len(train_df),
             "test_samples": len(test_df),

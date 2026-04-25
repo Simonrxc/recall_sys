@@ -19,6 +19,22 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
 
 
+def get_dataset_info(data_dir):
+    """读取转换目录元信息，提取 ml-1m/ml-20m 等数据集名称。"""
+    metadata_path = os.path.join(data_dir, "metadata.json") if data_dir else None
+    source_dataset = None
+    if metadata_path and os.path.exists(metadata_path):
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            source_dataset = json.load(f).get("source_dataset")
+
+    dataset_name = os.path.basename(os.path.normpath(source_dataset or data_dir or "unknown"))
+    return {
+        "dataset_name": dataset_name,
+        "source_dataset": source_dataset or data_dir,
+        "data_dir": data_dir,
+    }
+
+
 def save_experiment_results(metrics, config, output_dir=OUTPUT_DIR):
     """保存评估结果到 output 目录；该目录已在 .gitignore 中忽略。"""
     os.makedirs(output_dir, exist_ok=True)
@@ -44,6 +60,9 @@ def save_experiment_results(metrics, config, output_dir=OUTPUT_DIR):
                 "hr": values["hr"],
                 "ndcg": values["ndcg"],
                 "total_users": metrics["total_users"],
+                "dataset_name": config["dataset_name"],
+                "source_dataset": config.get("source_dataset"),
+                "data_dir": config["data_dir"],
                 "model_path": config["model_path"],
                 "embed_dim": config["embed_dim"],
                 "device": config["device"],
@@ -273,8 +292,9 @@ def evaluate(args):
         "total_users": total,
         "by_k": by_k,
     }
+    data_dir = getattr(__import__("dataset"), "DATA_DIR", None)
     config = {
-        "data_dir": getattr(__import__("dataset"), "DATA_DIR", None),
+        **get_dataset_info(data_dir),
         "model_path": args.model_path,
         "embed_dim": args.embed_dim,
         "device": args.device,
