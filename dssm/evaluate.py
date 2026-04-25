@@ -13,8 +13,6 @@ try:
 except ImportError:
     faiss = None
 
-DATA_DIR = "../dataset/ml-1m"
-
 def load_and_split_data():
     """
     加载数据并按 Leave-One-Out 划分测试集
@@ -101,6 +99,9 @@ def evaluate(args):
     print(f"Loading model from {args.model_path}...")
     model = DSSM(
         num_users=dataset.num_users,
+        num_genders=dataset.num_genders,
+        num_ages=dataset.num_ages,
+        num_occupations=dataset.num_occupations,
         num_zips=dataset.num_zips,
         num_movies=dataset.num_movies,
         num_genres=dataset.num_genres,

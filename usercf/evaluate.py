@@ -10,22 +10,50 @@ from tqdm import tqdm
 import multiprocessing as mp
 
 # 配置路径
-DATA_DIR = "../dataset/ml-1m"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+DEFAULT_DATA_DIRS = [
+    os.path.join(REPO_ROOT, "convert_dataset"),
+    os.path.join(REPO_ROOT, "converted_dataset"),
+]
+
+
+def resolve_data_dir():
+    """定位 convert_dataset.py 生成的统一数据目录。"""
+    env_data_dir = os.environ.get("USERCF_DATA_DIR")
+    if env_data_dir:
+        return os.path.abspath(env_data_dir)
+
+    for data_dir in DEFAULT_DATA_DIRS:
+        if os.path.isdir(data_dir):
+            return data_dir
+
+    return DEFAULT_DATA_DIRS[0]
+
+
+DATA_DIR = resolve_data_dir()
 
 def load_and_split_data():
     """
     加载数据并按 Leave-One-Out 方式划分为训练集和测试集
     """
-    print("Loading and splitting data...")
-    
-    # 加载评分数据
-    ratings = pd.read_csv(
-        os.path.join(DATA_DIR, "ratings.dat"),
-        sep="::",
-        engine="python",
-        names=["UserID", "MovieID", "Rating", "Timestamp"],
-        encoding="latin-1"
+    print(f"Loading converted data from {DATA_DIR}...")
+    ratings_path = os.path.join(DATA_DIR, "ratings.csv")
+    if not os.path.exists(ratings_path):
+        raise FileNotFoundError(
+            f"未找到转换后的数据文件: {ratings_path}\n"
+            "请先运行: python convert_dataset.py -o convert_dataset"
+        )
+
+    ratings = pd.read_csv(ratings_path).rename(
+        columns={
+            "user_id": "UserID",
+            "movie_id": "MovieID",
+            "rating": "Rating",
+            "timestamp": "Timestamp",
+        }
     )
+    ratings = ratings[["UserID", "MovieID", "Rating", "Timestamp"]].copy()
     
     # 按用户和时间排序
     ratings = ratings.sort_values(by=['UserID', 'Timestamp'])

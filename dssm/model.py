@@ -3,13 +3,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class UserTower(nn.Module):
-    def __init__(self, num_users, num_zips, embed_dim=32, hidden_dims=[256, 128, 64]):
+    def __init__(
+        self,
+        num_users,
+        num_genders,
+        num_ages,
+        num_occupations,
+        num_zips,
+        embed_dim=32,
+        hidden_dims=[256, 128, 64],
+    ):
         super().__init__()
         # Embeddings
         self.user_emb = nn.Embedding(num_users, embed_dim)
-        self.gender_emb = nn.Embedding(2, embed_dim) # 0/1
-        self.age_emb = nn.Embedding(7, embed_dim)    # 7 buckets
-        self.occ_emb = nn.Embedding(21, embed_dim)   # 21 occupations
+        self.gender_emb = nn.Embedding(num_genders, embed_dim)
+        self.age_emb = nn.Embedding(num_ages, embed_dim)
+        self.occ_emb = nn.Embedding(num_occupations, embed_dim)
         self.zip_emb = nn.Embedding(num_zips, embed_dim)
         
         # Concat dim = 5 * embed_dim
@@ -69,9 +78,26 @@ class ItemTower(nn.Module):
         return F.normalize(x, p=2, dim=1)
 
 class DSSM(nn.Module):
-    def __init__(self, num_users, num_zips, num_movies, num_genres, embed_dim=32):
+    def __init__(
+        self,
+        num_users,
+        num_genders,
+        num_ages,
+        num_occupations,
+        num_zips,
+        num_movies,
+        num_genres,
+        embed_dim=32,
+    ):
         super().__init__()
-        self.user_tower = UserTower(num_users, num_zips, embed_dim)
+        self.user_tower = UserTower(
+            num_users,
+            num_genders,
+            num_ages,
+            num_occupations,
+            num_zips,
+            embed_dim,
+        )
         self.item_tower = ItemTower(num_movies, num_genres, embed_dim)
         
     def forward(self, batch_data, mode='pointwise'):
