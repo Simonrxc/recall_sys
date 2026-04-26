@@ -89,7 +89,7 @@ python train.py ^
   --lr 0.001 ^
   --embed_dim 32 ^
   --neg_ratio 3 ^
-  --device cpu
+  --device cuda
 ```
 
 Linux/macOS 常用可选项：
