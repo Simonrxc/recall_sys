@@ -2,68 +2,105 @@
 # -*- coding: utf-8 -*-
 
 import os
+import json
 import pandas as pd
 import numpy as np
 import math
 from gensim.models import Word2Vec
 from collections import defaultdict
+from datetime import datetime
 from tqdm import tqdm
 
 # 配置路径
-DATA_DIR = "../dataset/ml-1m"
-OUTPUT_DIR = "./output"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+DEFAULT_DATA_DIRS = [
+    os.path.join(REPO_ROOT, "convert_dataset"),
+    os.path.join(REPO_ROOT, "converted_dataset"),
+]
+OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
+
+
+def resolve_data_dir():
+    """定位 convert_dataset.py 生成的统一数据目录。"""
+    env_data_dir = os.environ.get("ITEMCF_DATA_DIR") or os.environ.get("RECALL_DATA_DIR")
+    if env_data_dir:
+        return os.path.abspath(env_data_dir)
+
+    for data_dir in DEFAULT_DATA_DIRS:
+        if os.path.isdir(data_dir):
+            return data_dir
+
+    return DEFAULT_DATA_DIRS[0]
+
+
+DATA_DIR = resolve_data_dir()
+
+
+def get_dataset_info():
+    """读取转换元信息，标识本次实验使用的是 ml-1m、ml-20m 等哪个数据集。"""
+    metadata_path = os.path.join(DATA_DIR, "metadata.json")
+    source_dataset = None
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            source_dataset = json.load(f).get("source_dataset")
+
+    dataset_name = os.path.basename(os.path.normpath(source_dataset or DATA_DIR))
+    return {
+        "dataset_name": dataset_name,
+        "source_dataset": source_dataset or DATA_DIR,
+    }
+
+
+def load_converted_data():
+    """加载转换后的 movies.csv 和 ratings.csv，并映射为算法内部字段名。"""
+    movies_path = os.path.join(DATA_DIR, "movies.csv")
+    train_path = os.path.join(DATA_DIR, "train_ratings.csv")
+    test_path = os.path.join(DATA_DIR, "test_ratings.csv")
+    missing_files = [path for path in [movies_path, train_path, test_path] if not os.path.exists(path)]
+    if missing_files:
+        missing = ", ".join(missing_files)
+        raise FileNotFoundError(
+            f"未找到转换后的数据文件: {missing}\n"
+            "请先重新运行: python convert_dataset.py -o convert_dataset"
+        )
+
+    movies = pd.read_csv(movies_path).rename(
+        columns={
+            "movie_id": "MovieID",
+            "title": "Title",
+            "genres": "Genres",
+        }
+    )
+    train_df = pd.read_csv(train_path).rename(
+        columns={
+            "user_id": "UserID",
+            "movie_id": "MovieID",
+            "rating": "Rating",
+            "timestamp": "Timestamp",
+        }
+    )
+    test_df = pd.read_csv(test_path).rename(
+        columns={
+            "user_id": "UserID",
+            "movie_id": "MovieID",
+            "rating": "Rating",
+            "timestamp": "Timestamp",
+        }
+    )
+
+    movies = movies[["MovieID", "Title", "Genres"]].copy()
+    train_df = train_df[["UserID", "MovieID", "Rating", "Timestamp"]].copy()
+    test_df = test_df[["UserID", "MovieID", "Rating", "Timestamp"]].copy()
+    movies["Genres"] = movies["Genres"].fillna("(no genres listed)").astype(str)
+    return movies, train_df, test_df
 
 def load_and_split_data():
     """
-    加载数据并按 Leave-One-Out 方式划分为训练集和测试集
+    加载 convert_dataset.py 预先划分好的训练集和测试集。
     """
-    print("Loading and splitting data...")
-    
-    # 加载电影数据
-    movies = pd.read_csv(
-        os.path.join(DATA_DIR, "movies.dat"),
-        sep="::",
-        engine="python",
-        names=["MovieID", "Title", "Genres"],
-        encoding="latin-1"
-    )
-    
-    # 加载评分数据
-    ratings = pd.read_csv(
-        os.path.join(DATA_DIR, "ratings.dat"),
-        sep="::",
-        engine="python",
-        names=["UserID", "MovieID", "Rating", "Timestamp"],
-        encoding="latin-1"
-    )
-    
-    # 按用户和时间排序
-    ratings = ratings.sort_values(by=['UserID', 'Timestamp'])
-    
-    train_data = []
-    test_data = []
-    
-    # 按用户分组划分
-    for user_id, group in tqdm(ratings.groupby('UserID'), desc="Splitting data"):
-        # 转换为列表: [(MovieID, Rating, Timestamp), ...]
-        user_history = group[['MovieID', 'Rating', 'Timestamp']].values.tolist()
-        
-        if len(user_history) < 2:
-            # 如果交互少于2个，全部放入训练集（无法做测试）
-            train_data.extend([[user_id, *item] for item in user_history])
-            continue
-            
-        # 最后一个作为测试集
-        test_item = user_history[-1]
-        test_data.append([user_id, *test_item])
-        
-        # 其余作为训练集
-        train_items = user_history[:-1]
-        train_data.extend([[user_id, *item] for item in train_items])
-        
-    # 转换为 DataFrame
-    train_df = pd.DataFrame(train_data, columns=['UserID', 'MovieID', 'Rating', 'Timestamp'])
-    test_df = pd.DataFrame(test_data, columns=['UserID', 'MovieID', 'Rating', 'Timestamp'])
+    print(f"Loading converted train/test split from {DATA_DIR}...")
+    movies, train_df, test_df = load_converted_data()
     
     print(f"Train samples: {len(train_df)}, Test samples: {len(test_df)}")
     return movies, train_df, test_df
@@ -176,8 +213,45 @@ def recommend(user_id, user_history_index, item_sim_index, last_n=20, top_k_sim=
     recs = sorted(candidates.items(), key=lambda x: x[1], reverse=True)[:top_n_rec]
     return [mid for mid, score in recs]
 
-def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10]):
-    """计算 HR@K 和 NDCG@K"""
+
+def save_experiment_results(metrics, metadata):
+    """保存实验指标到 output 目录；该目录已在 .gitignore 中忽略。"""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    payload = {
+        "module": "itemcf",
+        "timestamp": timestamp,
+        "data_dir": DATA_DIR,
+        "metadata": metadata,
+        "metrics": metrics,
+    }
+
+    json_path = os.path.join(OUTPUT_DIR, f"experiment_itemcf_{timestamp}.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    csv_path = os.path.join(OUTPUT_DIR, f"experiment_itemcf_{timestamp}.csv")
+    row = {
+        "timestamp": timestamp,
+        "model": "itemcf",
+        "dataset_name": metadata["dataset_name"],
+        "source_dataset": metadata["source_dataset"],
+        "data_dir": DATA_DIR,
+        "train_samples": metadata["train_samples"],
+        "test_samples": metadata["test_samples"],
+        "num_movies": metadata["num_movies"],
+    }
+    for k, values in metrics.items():
+        k_label = str(k).lstrip("@")
+        row[f"Recall@{k_label}"] = values["recall"]
+        row[f"HR@{k_label}"] = values["hr"]
+        row[f"NDCG@{k_label}"] = values["ndcg"]
+
+    pd.DataFrame([row]).to_csv(csv_path, index=False, encoding="utf-8")
+    print(f"Experiment results saved to {json_path} and {csv_path}")
+
+def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[50, 100, 200]):
+    """计算 Recall@K、HR@K 和 NDCG@K。Leave-One-Out 下 Recall@K 等价于 HR@K。"""
     print("\nCalculating metrics...")
     
     hits = {k: 0 for k in ks}
@@ -211,12 +285,17 @@ def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10]
     print("-" * 40)
     print("Evaluation Results:")
     print("-" * 40)
+    metrics = {}
     for k in ks:
-        hr = hits[k] / total_users
-        ndcg = ndcgs[k] / total_users
+        hr = hits[k] / total_users if total_users else 0.0
+        recall = hr
+        ndcg = ndcgs[k] / total_users if total_users else 0.0
+        metrics[f"@{k}"] = {"recall": recall, "hr": hr, "ndcg": ndcg}
+        print(f"Recall@{k}: {recall:.4f}")
         print(f"HR@{k}: {hr:.4f}")
         print(f"NDCG@{k}: {ndcg:.4f}")
     print("-" * 40)
+    return metrics
 
 def main():
     # 1. 加载并划分数据
@@ -235,7 +314,16 @@ def main():
     user_history_index = build_user_history_index(train_df)
     
     # 6. 评估
-    calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10])
+    metrics = calculate_metrics(test_df, user_history_index, item_sim_index, ks=[50, 100, 200])
+    save_experiment_results(
+        metrics,
+        {
+            **get_dataset_info(),
+            "train_samples": len(train_df),
+            "test_samples": len(test_df),
+            "num_movies": len(movies),
+        },
+    )
 
 if __name__ == "__main__":
     main()

@@ -18,6 +18,9 @@ def train(args):
     # Model
     model = DSSM(
         num_users=train_dataset.num_users,
+        num_genders=train_dataset.num_genders,
+        num_ages=train_dataset.num_ages,
+        num_occupations=train_dataset.num_occupations,
         num_zips=train_dataset.num_zips,
         num_movies=train_dataset.num_movies,
         num_genres=train_dataset.num_genres,

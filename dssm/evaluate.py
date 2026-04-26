@@ -1,4 +1,6 @@
 import argparse
+import json
+from datetime import datetime
 import torch
 import numpy as np
 import pandas as pd
@@ -13,31 +15,105 @@ try:
 except ImportError:
     faiss = None
 
-DATA_DIR = "../dataset/ml-1m"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
+
+
+def get_dataset_info(data_dir):
+    """读取转换目录元信息，提取 ml-1m/ml-20m 等数据集名称。"""
+    metadata_path = os.path.join(data_dir, "metadata.json") if data_dir else None
+    source_dataset = None
+    if metadata_path and os.path.exists(metadata_path):
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            source_dataset = json.load(f).get("source_dataset")
+
+    dataset_name = os.path.basename(os.path.normpath(source_dataset or data_dir or "unknown"))
+    return {
+        "dataset_name": dataset_name,
+        "source_dataset": source_dataset or data_dir,
+        "data_dir": data_dir,
+    }
+
+
+def save_experiment_results(metrics, config, output_dir=OUTPUT_DIR):
+    """保存评估结果到 output 目录；该目录已在 .gitignore 中忽略。"""
+    os.makedirs(output_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    result = {
+        "model": "dssm",
+        "timestamp": timestamp,
+        "config": config,
+        "metrics": metrics,
+    }
+
+    json_path = os.path.join(output_dir, f"experiment_dssm_{timestamp}.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+
+    row = {
+        "timestamp": timestamp,
+        "model": "dssm",
+        "dataset_name": config["dataset_name"],
+        "source_dataset": config.get("source_dataset"),
+        "data_dir": config["data_dir"],
+        "model_path": config["model_path"],
+        "embed_dim": config["embed_dim"],
+        "device": config["device"],
+        "retrieval_backend": config["retrieval_backend"],
+        "total_users": metrics["total_users"],
+        "num_users": config["num_users"],
+        "num_movies": config["num_movies"],
+        "num_ratings": config["num_ratings"],
+    }
+    for k, values in metrics["by_k"].items():
+        row[f"Recall@{k}"] = values["recall"]
+        row[f"HR@{k}"] = values["hr"]
+        row[f"NDCG@{k}"] = values["ndcg"]
+
+    csv_path = os.path.join(output_dir, f"experiment_dssm_{timestamp}.csv")
+    pd.DataFrame([row]).to_csv(csv_path, index=False)
+    print(f"Experiment results saved to {json_path} and {csv_path}")
+
+def load_split_ratings():
+    """读取 convert_dataset.py 预先生成的统一 train/test 划分。"""
+    data_dir = getattr(__import__("dataset"), "DATA_DIR", None)
+    train_path = os.path.join(data_dir, "train_ratings.csv") if data_dir else None
+    test_path = os.path.join(data_dir, "test_ratings.csv") if data_dir else None
+    missing_files = [
+        path for path in [train_path, test_path]
+        if not path or not os.path.exists(path)
+    ]
+    if missing_files:
+        missing = ", ".join(missing_files)
+        raise FileNotFoundError(
+            f"未找到统一划分文件: {missing}\n"
+            "请先重新运行: python convert_dataset.py -o convert_dataset"
+        )
+
+    def read_ratings_csv(path):
+        ratings = pd.read_csv(path).rename(
+            columns={
+                "user_id": "UserID",
+                "movie_id": "MovieID",
+                "rating": "Rating",
+                "timestamp": "Timestamp",
+            }
+        )
+        return ratings[["UserID", "MovieID", "Rating", "Timestamp"]].copy()
+
+    return read_ratings_csv(train_path), read_ratings_csv(test_path)
+
 
 def load_and_split_data():
     """
-    加载数据并按 Leave-One-Out 划分测试集
+    加载数据，并读取 convert_dataset.py 生成的固定 Leave-One-Out 划分。
     """
-    print("Loading data...")
+    print("Loading data and fixed train/test split...")
     users, movies, ratings = load_data()
-    
-    # 按用户和时间排序
-    ratings = ratings.sort_values(by=['UserID', 'Timestamp'])
-    
-    test_data = []
-    
-    # 简单的 Leave-One-Out
-    # 为了保证 ID 映射一致，我们需要先用全量数据初始化 Dataset
-    # 这样 Dataset 内部的 Encoder 就会包含所有 User 和 Movie
-    # 然后我们在评估时，只取测试集的那部分交互
-    
-    # 按用户分组，取最后一条作为测试
-    last_interactions = ratings.groupby('UserID').tail(1)
-    
-    # 构造测试集 DataFrame: UserID, MovieID
-    test_df = last_interactions[['UserID', 'MovieID']].copy()
-    
+    train_df, test_ratings = load_split_ratings()
+    train_user_ids = set(train_df["UserID"].unique())
+    test_df = test_ratings[test_ratings["UserID"].isin(train_user_ids)][["UserID", "MovieID"]].copy()
+
     return users, movies, ratings, test_df
 
 def get_embeddings(model, dataset, device):
@@ -101,6 +177,9 @@ def evaluate(args):
     print(f"Loading model from {args.model_path}...")
     model = DSSM(
         num_users=dataset.num_users,
+        num_genders=dataset.num_genders,
+        num_ages=dataset.num_ages,
+        num_occupations=dataset.num_occupations,
         num_zips=dataset.num_zips,
         num_movies=dataset.num_movies,
         num_genres=dataset.num_genres,
@@ -125,9 +204,10 @@ def evaluate(args):
         
     # 6. 评估
     print("Evaluating...")
-    ks = [3, 5, 10]
+    ks = [50, 100, 200]
     hits = {k: 0 for k in ks}
     ndcgs = {k: 0 for k in ks}
+    recalls = {k: 0.0 for k in ks}
     total = 0
     
     # 遍历测试集用户
@@ -208,18 +288,41 @@ def evaluate(args):
                 top_k_recs = rec_list[:k]
                 if target_mid_idx in top_k_recs:
                     hits[k] += 1
+                    recalls[k] += 1.0
                     rank = np.where(top_k_recs == target_mid_idx)[0][0]
                     ndcgs[k] += 1.0 / math.log2(rank + 2)
                     
     print("-" * 40)
     print("DSSM Evaluation Results:")
     print("-" * 40)
+    by_k = {}
     for k in ks:
-        hr = hits[k] / total
-        ndcg = ndcgs[k] / total
+        recall = recalls[k] / total if total else 0.0
+        hr = hits[k] / total if total else 0.0
+        ndcg = ndcgs[k] / total if total else 0.0
+        by_k[k] = {"recall": recall, "hr": hr, "ndcg": ndcg}
+        print(f"Recall@{k}: {recall:.4f}")
         print(f"HR@{k}: {hr:.4f}")
         print(f"NDCG@{k}: {ndcg:.4f}")
     print("-" * 40)
+
+    metrics = {
+        "total_users": total,
+        "by_k": by_k,
+    }
+    data_dir = getattr(__import__("dataset"), "DATA_DIR", None)
+    config = {
+        **get_dataset_info(data_dir),
+        "model_path": args.model_path,
+        "embed_dim": args.embed_dim,
+        "device": args.device,
+        "retrieval_backend": "faiss" if faiss else "numpy",
+        "num_users": len(users),
+        "num_movies": len(movies),
+        "num_ratings": len(ratings),
+        "num_test_users": len(test_df),
+    }
+    save_experiment_results(metrics, config)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

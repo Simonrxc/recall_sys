@@ -1,0 +1,22 @@
+python train.py ^
+  --mode pointwise ^
+  --batch_size 256 ^
+  --epochs 5 ^
+  --lr 0.001 ^
+  --embed_dim 32 ^
+  --neg_ratio 3 ^
+  --device cuda
+
+python evaluate.py --model_path dssm_pointwise.pth --embed_dim 32 --device cuda
+
+python train.py ^
+  --mode pairwise ^
+  --batch_size 256 ^
+  --epochs 5 ^
+  --lr 0.001 ^
+  --embed_dim 32 ^
+  --neg_ratio 3 ^
+  --device cuda
+
+python evaluate.py --model_path dssm_pairwise.pth --embed_dim 32 --device cuda
+

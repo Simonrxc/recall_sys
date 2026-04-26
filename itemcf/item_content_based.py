@@ -10,30 +10,68 @@ from gensim.models import Word2Vec
 from collections import defaultdict
 
 # 配置路径
-DATA_DIR = "../dataset/ml-1m"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+DEFAULT_DATA_DIRS = [
+    os.path.join(REPO_ROOT, "convert_dataset"),
+    os.path.join(REPO_ROOT, "converted_dataset"),
+]
+
+
+def resolve_data_dir():
+    """定位 convert_dataset.py 生成的统一数据目录。"""
+    env_data_dir = os.environ.get("ITEMCF_DATA_DIR")
+    if env_data_dir:
+        return os.path.abspath(env_data_dir)
+
+    for data_dir in DEFAULT_DATA_DIRS:
+        if os.path.isdir(data_dir):
+            return data_dir
+
+    return DEFAULT_DATA_DIRS[0]
+
+
+DATA_DIR = resolve_data_dir()
 OUTPUT_DIR = "./output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def load_data():
-    """加载数据"""
-    print("Loading data...")
-    # 加载电影数据
-    movies = pd.read_csv(
-        os.path.join(DATA_DIR, "movies.dat"),
-        sep="::",
-        engine="python",
-        names=["MovieID", "Title", "Genres"],
-        encoding="latin-1"
+    """加载 convert_dataset.py 输出的统一 CSV 数据。"""
+    print(f"Loading converted data from {DATA_DIR}...")
+    movies_path = os.path.join(DATA_DIR, "movies.csv")
+    ratings_path = os.path.join(DATA_DIR, "ratings.csv")
+
+    missing_files = [path for path in [movies_path, ratings_path] if not os.path.exists(path)]
+    if missing_files:
+        missing = ", ".join(missing_files)
+        raise FileNotFoundError(
+            f"未找到转换后的数据文件: {missing}\n"
+            "请先运行: python convert_dataset.py -o convert_dataset"
+        )
+
+    movies = pd.read_csv(movies_path)
+    ratings = pd.read_csv(ratings_path)
+
+    movies = movies.rename(
+        columns={
+            "movie_id": "MovieID",
+            "title": "Title",
+            "genres": "Genres",
+        }
     )
-    
-    # 加载评分数据
-    ratings = pd.read_csv(
-        os.path.join(DATA_DIR, "ratings.dat"),
-        sep="::",
-        engine="python",
-        names=["UserID", "MovieID", "Rating", "Timestamp"],
-        encoding="latin-1"
+    ratings = ratings.rename(
+        columns={
+            "user_id": "UserID",
+            "movie_id": "MovieID",
+            "rating": "Rating",
+            "timestamp": "Timestamp",
+        }
     )
+
+    movies = movies[["MovieID", "Title", "Genres"]].copy()
+    ratings = ratings[["UserID", "MovieID", "Rating", "Timestamp"]].copy()
+    movies["Genres"] = movies["Genres"].fillna("(no genres listed)").astype(str)
+
     return movies, ratings
 
 def train_genre_embeddings(movies, vector_size=32, window=5, min_count=1):
