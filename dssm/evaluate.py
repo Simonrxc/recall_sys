@@ -74,29 +74,46 @@ def save_experiment_results(metrics, config, output_dir=OUTPUT_DIR):
     pd.DataFrame([row]).to_csv(csv_path, index=False)
     print(f"Experiment results saved to {json_path} and {csv_path}")
 
+def load_split_ratings():
+    """读取 convert_dataset.py 预先生成的统一 train/test 划分。"""
+    data_dir = getattr(__import__("dataset"), "DATA_DIR", None)
+    train_path = os.path.join(data_dir, "train_ratings.csv") if data_dir else None
+    test_path = os.path.join(data_dir, "test_ratings.csv") if data_dir else None
+    missing_files = [
+        path for path in [train_path, test_path]
+        if not path or not os.path.exists(path)
+    ]
+    if missing_files:
+        missing = ", ".join(missing_files)
+        raise FileNotFoundError(
+            f"未找到统一划分文件: {missing}\n"
+            "请先重新运行: python convert_dataset.py -o convert_dataset"
+        )
+
+    def read_ratings_csv(path):
+        ratings = pd.read_csv(path).rename(
+            columns={
+                "user_id": "UserID",
+                "movie_id": "MovieID",
+                "rating": "Rating",
+                "timestamp": "Timestamp",
+            }
+        )
+        return ratings[["UserID", "MovieID", "Rating", "Timestamp"]].copy()
+
+    return read_ratings_csv(train_path), read_ratings_csv(test_path)
+
+
 def load_and_split_data():
     """
-    加载数据并按 Leave-One-Out 划分测试集
+    加载数据，并读取 convert_dataset.py 生成的固定 Leave-One-Out 划分。
     """
-    print("Loading data...")
+    print("Loading data and fixed train/test split...")
     users, movies, ratings = load_data()
-    
-    # 按用户和时间排序
-    ratings = ratings.sort_values(by=['UserID', 'Timestamp'])
-    
-    test_data = []
-    
-    # 简单的 Leave-One-Out
-    # 为了保证 ID 映射一致，我们需要先用全量数据初始化 Dataset
-    # 这样 Dataset 内部的 Encoder 就会包含所有 User 和 Movie
-    # 然后我们在评估时，只取测试集的那部分交互
-    
-    # 按用户分组，取最后一条作为测试
-    last_interactions = ratings.groupby('UserID').tail(1)
-    
-    # 构造测试集 DataFrame: UserID, MovieID
-    test_df = last_interactions[['UserID', 'MovieID']].copy()
-    
+    train_df, test_ratings = load_split_ratings()
+    train_user_ids = set(train_df["UserID"].unique())
+    test_df = test_ratings[test_ratings["UserID"].isin(train_user_ids)][["UserID", "MovieID"]].copy()
+
     return users, movies, ratings, test_df
 
 def get_embeddings(model, dataset, device):

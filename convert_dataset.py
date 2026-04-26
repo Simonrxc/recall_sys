@@ -268,6 +268,25 @@ def build_user_sequences(interactions):
     return sequences
 
 
+def split_leave_one_out(ratings):
+    """Split ratings once so every model evaluates on the same holdout rows."""
+    grouped = defaultdict(list)
+    for row in ratings:
+        grouped[row["user_id"]].append(row)
+
+    train_rows = []
+    test_rows = []
+    for user_id in sorted(grouped):
+        user_rows = sorted(grouped[user_id], key=lambda row: (row["timestamp"], row["movie_id"]))
+        if len(user_rows) < 2:
+            train_rows.extend(user_rows)
+        else:
+            train_rows.extend(user_rows[:-1])
+            test_rows.append(user_rows[-1])
+
+    return train_rows, test_rows
+
+
 def clear_output_dir(output_dir, dataset_root, dataset_dir):
     """Remove previous converted files and recreate the output directory."""
     output = Path(output_dir).resolve()
@@ -297,9 +316,12 @@ def convert_dataset(dataset_root, dataset_dir, output_dir, positive_threshold):
     users = read_users(dataset_dir, ratings)
     interactions = build_interactions(ratings, positive_threshold)
     sequences = build_user_sequences(interactions)
+    train_ratings, test_ratings = split_leave_one_out(ratings)
 
     output = clear_output_dir(output_dir, dataset_root, dataset_dir)
     write_csv(output / "ratings.csv", RATING_COLUMNS, ratings)
+    write_csv(output / "train_ratings.csv", RATING_COLUMNS, train_ratings)
+    write_csv(output / "test_ratings.csv", RATING_COLUMNS, test_ratings)
     write_csv(output / "movies.csv", MOVIE_COLUMNS, movies)
     write_csv(output / "users.csv", USER_COLUMNS, users)
     write_csv(output / "interactions.csv", INTERACTION_COLUMNS, interactions)
@@ -308,12 +330,17 @@ def convert_dataset(dataset_root, dataset_dir, output_dir, positive_threshold):
     metadata = {
         "source_dataset": str(dataset_dir),
         "positive_rating_threshold": positive_threshold,
+        "split_method": "leave_one_out_by_user_timestamp",
         "num_ratings": len(ratings),
+        "num_train_ratings": len(train_ratings),
+        "num_test_ratings": len(test_ratings),
         "num_positive_interactions": sum(row["label"] for row in interactions),
         "num_users": len(users),
         "num_movies": len(movies),
         "files": {
             "ratings": "ratings.csv",
+            "train_ratings": "train_ratings.csv",
+            "test_ratings": "test_ratings.csv",
             "movies": "movies.csv",
             "users": "users.csv",
             "interactions": "interactions.csv",
@@ -321,6 +348,8 @@ def convert_dataset(dataset_root, dataset_dir, output_dir, positive_threshold):
         },
         "columns": {
             "ratings": RATING_COLUMNS,
+            "train_ratings": RATING_COLUMNS,
+            "test_ratings": RATING_COLUMNS,
             "movies": MOVIE_COLUMNS,
             "users": USER_COLUMNS,
             "interactions": INTERACTION_COLUMNS,

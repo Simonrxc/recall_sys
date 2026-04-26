@@ -190,12 +190,12 @@ class MovieLensDataset(Dataset):
                 'neg_genres': np.array(m_neg_feat['Genres_idx'])
             }
 
-def load_data():
+def load_data(ratings_filename="ratings.csv"):
     """加载 convert_dataset.py 输出的统一 CSV 数据。"""
     print(f"Loading converted data from {DATA_DIR}...")
     users_path = os.path.join(DATA_DIR, "users.csv")
     movies_path = os.path.join(DATA_DIR, "movies.csv")
-    ratings_path = os.path.join(DATA_DIR, "ratings.csv")
+    ratings_path = os.path.join(DATA_DIR, ratings_filename)
 
     missing_files = [
         path for path in [users_path, movies_path, ratings_path]

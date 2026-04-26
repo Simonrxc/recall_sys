@@ -53,51 +53,29 @@ def get_dataset_info():
 
 def load_and_split_data():
     """
-    加载数据并按 Leave-One-Out 方式划分为训练集和测试集
+    加载 convert_dataset.py 预先划分好的训练集和测试集。
     """
-    print(f"Loading converted data from {DATA_DIR}...")
-    ratings_path = os.path.join(DATA_DIR, "ratings.csv")
-    if not os.path.exists(ratings_path):
+    print(f"Loading pre-split data from {DATA_DIR}...")
+    train_path = os.path.join(DATA_DIR, "train_ratings.csv")
+    test_path = os.path.join(DATA_DIR, "test_ratings.csv")
+    missing_files = [path for path in [train_path, test_path] if not os.path.exists(path)]
+    if missing_files:
+        missing = ", ".join(missing_files)
         raise FileNotFoundError(
-            f"未找到转换后的数据文件: {ratings_path}\n"
-            "请先运行: python convert_dataset.py -o convert_dataset"
+            f"未找到统一划分文件: {missing}\n"
+            "请重新运行: python convert_dataset.py -o convert_dataset"
         )
 
-    ratings = pd.read_csv(ratings_path).rename(
-        columns={
-            "user_id": "UserID",
-            "movie_id": "MovieID",
-            "rating": "Rating",
-            "timestamp": "Timestamp",
-        }
-    )
-    ratings = ratings[["UserID", "MovieID", "Rating", "Timestamp"]].copy()
-    
-    # 按用户和时间排序
-    ratings = ratings.sort_values(by=['UserID', 'Timestamp'])
-    
-    train_data = []
-    test_data = []
-    
-    # 按用户分组划分
-    for user_id, group in tqdm(ratings.groupby('UserID'), desc="Splitting data"):
-        # 转换为列表: [(MovieID, Rating, Timestamp), ...]
-        user_history = group[['MovieID', 'Rating', 'Timestamp']].values.tolist()
-        
-        if len(user_history) < 2:
-            train_data.extend([[user_id, *item] for item in user_history])
-            continue
-            
-        # 最后一个作为测试集
-        test_item = user_history[-1]
-        test_data.append([user_id, *test_item])
-        
-        # 其余作为训练集
-        train_items = user_history[:-1]
-        train_data.extend([[user_id, *item] for item in train_items])
-        
-    train_df = pd.DataFrame(train_data, columns=['UserID', 'MovieID', 'Rating', 'Timestamp'])
-    test_df = pd.DataFrame(test_data, columns=['UserID', 'MovieID', 'Rating', 'Timestamp'])
+    rename_columns = {
+        "user_id": "UserID",
+        "movie_id": "MovieID",
+        "rating": "Rating",
+        "timestamp": "Timestamp",
+    }
+    train_df = pd.read_csv(train_path).rename(columns=rename_columns)
+    test_df = pd.read_csv(test_path).rename(columns=rename_columns)
+    train_df = train_df[["UserID", "MovieID", "Rating", "Timestamp"]].copy()
+    test_df = test_df[["UserID", "MovieID", "Rating", "Timestamp"]].copy()
     
     print(f"Train samples: {len(train_df)}, Test samples: {len(test_df)}")
     return train_df, test_df
