@@ -4,6 +4,7 @@
 
 ## 下载数据集并解压
 
+windows
 ```bash
 mkdir dataset
 
@@ -13,6 +14,18 @@ curl -L -o dataset/ml-1m.zip https://files.grouplens.org/datasets/movielens/ml-1
 curl -L -o dataset/ml-10m.zip https://files.grouplens.org/datasets/movielens/ml-10m.zip
 curl -L -o dataset/ml-20m.zip https://files.grouplens.org/datasets/movielens/ml-20m.zip
 curl -L -o dataset/ml-25m.zip https://files.grouplens.org/datasets/movielens/ml-25m.zip
+```
+
+linux
+```bash
+mkdir -p dataset && cd dataset
+
+for name in ml-latest-small ml-100k ml-1m ml-10m ml-20m ml-25m
+do
+  curl -L -o ${name}.zip https://files.grouplens.org/datasets/movielens/${name}.zip \
+  && unzip -q ${name}.zip \
+  && rm ${name}.zip
+done
 ```
 
 ## 处理任一数据集
@@ -90,6 +103,19 @@ python train.py ^
   --embed_dim 32 ^
   --neg_ratio 3 ^
   --device cuda
+
+python evaluate.py --model_path dssm_pointwise.pth --embed_dim 32 --device cuda
+
+python train.py ^
+  --mode pairwise ^
+  --batch_size 256 ^
+  --epochs 5 ^
+  --lr 0.001 ^
+  --embed_dim 32 ^
+  --neg_ratio 3 ^
+  --device cuda
+
+python evaluate.py --model_path dssm_pairwise.pth --embed_dim 32 --device cuda
 ```
 
 Linux/macOS 常用可选项：
@@ -102,7 +128,20 @@ python train.py \
   --lr 0.001 \
   --embed_dim 32 \
   --neg_ratio 3 \
-  --device cpu
+  --device cuda
+
+python evaluate.py --model_path dssm_pointwise.pth --embed_dim 32 --device cuda
+
+python train.py \
+  --mode pairwise \
+  --batch_size 512 \
+  --epochs 30 \
+  --lr 0.001 \
+  --embed_dim 64 \
+  --margin 0.2 \
+  --device cuda
+
+python evaluate.py --model_path dssm_pairwise.pth --embed_dim 64 --device cuda
 ```
 
 训练参数说明：
@@ -156,5 +195,5 @@ python evaluate.py
 指定 pairwise 模型评估：
 
 ```bash
-python evaluate.py --model_path dssm_pairwise.pth --embed_dim 32 --device cpu
+python evaluate.py --model_path dssm_pairwise.pth --embed_dim 32 --device cuda
 ```
