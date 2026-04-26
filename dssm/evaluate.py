@@ -66,6 +66,7 @@ def save_experiment_results(metrics, config, output_dir=OUTPUT_DIR):
         "num_ratings": config["num_ratings"],
     }
     for k, values in metrics["by_k"].items():
+        row[f"Recall@{k}"] = values["recall"]
         row[f"HR@{k}"] = values["hr"]
         row[f"NDCG@{k}"] = values["ndcg"]
 
@@ -186,9 +187,10 @@ def evaluate(args):
         
     # 6. 评估
     print("Evaluating...")
-    ks = [3, 5, 10]
+    ks = [50, 100, 200]
     hits = {k: 0 for k in ks}
     ndcgs = {k: 0 for k in ks}
+    recalls = {k: 0.0 for k in ks}
     total = 0
     
     # 遍历测试集用户
@@ -269,6 +271,7 @@ def evaluate(args):
                 top_k_recs = rec_list[:k]
                 if target_mid_idx in top_k_recs:
                     hits[k] += 1
+                    recalls[k] += 1.0
                     rank = np.where(top_k_recs == target_mid_idx)[0][0]
                     ndcgs[k] += 1.0 / math.log2(rank + 2)
                     
@@ -277,9 +280,11 @@ def evaluate(args):
     print("-" * 40)
     by_k = {}
     for k in ks:
-        hr = hits[k] / total
-        ndcg = ndcgs[k] / total
-        by_k[k] = {"hr": hr, "ndcg": ndcg}
+        recall = recalls[k] / total if total else 0.0
+        hr = hits[k] / total if total else 0.0
+        ndcg = ndcgs[k] / total if total else 0.0
+        by_k[k] = {"recall": recall, "hr": hr, "ndcg": ndcg}
+        print(f"Recall@{k}: {recall:.4f}")
         print(f"HR@{k}: {hr:.4f}")
         print(f"NDCG@{k}: {ndcg:.4f}")
     print("-" * 40)

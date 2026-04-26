@@ -211,6 +211,7 @@ def save_experiment_results(metrics, metadata, output_dir=OUTPUT_DIR):
         **metadata,
     }
     for k, values in metrics.items():
+        row[f"Recall@{k}"] = values["recall"]
         row[f"HR@{k}"] = values["hr"]
         row[f"NDCG@{k}"] = values["ndcg"]
 
@@ -229,6 +230,7 @@ def calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set,
     print("\nCalculating metrics...")
     
     hits = {k: 0 for k in ks}
+    recalls = {k: 0 for k in ks}
     ndcgs = {k: 0 for k in ks}
     total_users = 0
     
@@ -254,6 +256,7 @@ def calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set,
             top_k_recs = rec_list[:k]
             if target_mid in top_k_recs:
                 hits[k] += 1
+                recalls[k] += 1
                 rank = top_k_recs.index(target_mid)
                 ndcgs[k] += 1.0 / math.log2(rank + 2)
                 
@@ -262,9 +265,11 @@ def calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set,
     print("-" * 40)
     metrics = {}
     for k in ks:
-        hr = hits[k] / total_users
-        ndcg = ndcgs[k] / total_users
-        metrics[k] = {"hr": hr, "ndcg": ndcg}
+        recall = recalls[k] / total_users if total_users else 0.0
+        hr = hits[k] / total_users if total_users else 0.0
+        ndcg = ndcgs[k] / total_users if total_users else 0.0
+        metrics[k] = {"recall": recall, "hr": hr, "ndcg": ndcg}
+        print(f"Recall@{k}: {recall:.4f}")
         print(f"HR@{k}: {hr:.4f}")
         print(f"NDCG@{k}: {ndcg:.4f}")
     print("-" * 40)
@@ -278,7 +283,7 @@ def main():
     user_sim_index, user_item_history, user_item_set = build_indices(train_df, sim_top_k=100)
     
     # 3. 评估
-    ks = [3, 5, 10]
+    ks = [50, 100, 200]
     metrics = calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set, ks=ks)
     save_experiment_results(
         metrics,

@@ -261,14 +261,15 @@ def save_experiment_results(metrics, metadata):
     }
     for k, values in metrics.items():
         k_label = str(k).lstrip("@")
+        row[f"Recall@{k_label}"] = values["recall"]
         row[f"HR@{k_label}"] = values["hr"]
         row[f"NDCG@{k_label}"] = values["ndcg"]
 
     pd.DataFrame([row]).to_csv(csv_path, index=False, encoding="utf-8")
     print(f"Experiment results saved to {json_path} and {csv_path}")
 
-def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10]):
-    """计算 HR@K 和 NDCG@K"""
+def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[50, 100, 200]):
+    """计算 Recall@K、HR@K 和 NDCG@K。Leave-One-Out 下 Recall@K 等价于 HR@K。"""
     print("\nCalculating metrics...")
     
     hits = {k: 0 for k in ks}
@@ -305,8 +306,10 @@ def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10]
     metrics = {}
     for k in ks:
         hr = hits[k] / total_users if total_users else 0.0
+        recall = hr
         ndcg = ndcgs[k] / total_users if total_users else 0.0
-        metrics[f"@{k}"] = {"hr": hr, "ndcg": ndcg}
+        metrics[f"@{k}"] = {"recall": recall, "hr": hr, "ndcg": ndcg}
+        print(f"Recall@{k}: {recall:.4f}")
         print(f"HR@{k}: {hr:.4f}")
         print(f"NDCG@{k}: {ndcg:.4f}")
     print("-" * 40)
@@ -329,7 +332,7 @@ def main():
     user_history_index = build_user_history_index(train_df)
     
     # 6. 评估
-    metrics = calculate_metrics(test_df, user_history_index, item_sim_index, ks=[3, 5, 10])
+    metrics = calculate_metrics(test_df, user_history_index, item_sim_index, ks=[50, 100, 200])
     save_experiment_results(
         metrics,
         {
