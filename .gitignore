@@ -4,3 +4,4 @@ converted_dataset/
 output/
 *.pth
 __pycache__/
+converted_dataset/
