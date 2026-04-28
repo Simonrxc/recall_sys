@@ -134,7 +134,7 @@ python evaluate.py --model_path dssm_pointwise.pth --embed_dim 32 --device cuda
 
 python train.py \
   --mode pairwise \
-  --batch_size 512 \
+  --batch_size 4096 \
   --epochs 30 \
   --lr 0.001 \
   --embed_dim 64 \
