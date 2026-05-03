@@ -1,7 +1,27 @@
+# 数据集目录
 dataset/
-.output
 converted_dataset/
+
+# 输出目录（所有模块）
 output/
-*.pth
+*/output/
+.output
+
+# Python 缓存
 __pycache__/
-converted_dataset/
+*.pyc
+*.pyo
+
+# 模型文件
+*.pth
+
+# 实验结果
+*/epoch_sweep_results/
+
+# Jupyter notebooks
+*.ipynb
+
+# 临时文件
+*.txt
+!requirements.txt
+!README.txt
