@@ -244,18 +244,21 @@ def save_experiment_results(metrics, metadata):
     for k, values in metrics.items():
         k_label = str(k).lstrip("@")
         row[f"Recall@{k_label}"] = values["recall"]
-        row[f"HR@{k_label}"] = values["hr"]
         row[f"NDCG@{k_label}"] = values["ndcg"]
+        row[f"MRR@{k_label}"] = values["mrr"]
+        row[f"Coverage@{k_label}"] = values["coverage"]
 
     pd.DataFrame([row]).to_csv(csv_path, index=False, encoding="utf-8")
     print(f"Experiment results saved to {json_path} and {csv_path}")
 
-def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[50, 100, 200]):
-    """计算 Recall@K、HR@K 和 NDCG@K。Leave-One-Out 下 Recall@K 等价于 HR@K。"""
+def calculate_metrics(test_df, user_history_index, item_sim_index, num_items, ks=[50, 100, 200]):
+    """计算 Recall@K、NDCG@K、MRR@K 和 Coverage@K。"""
     print("\nCalculating metrics...")
     
-    hits = {k: 0 for k in ks}
+    recalls = {k: 0.0 for k in ks}
     ndcgs = {k: 0 for k in ks}
+    mrrs = {k: 0.0 for k in ks}
+    coverage_items = {k: set() for k in ks}
     total_users = 0
     
     # 遍历测试集
@@ -272,14 +275,14 @@ def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[50, 100, 
         for k in ks:
             # 截取 Top K
             top_k_recs = rec_list[:k]
+            coverage_items[k].update(top_k_recs)
             
             if target_mid in top_k_recs:
-                # Hit Ratio
-                hits[k] += 1
-                
+                recalls[k] += 1.0
                 # NDCG
                 rank = top_k_recs.index(target_mid)
                 ndcgs[k] += 1.0 / math.log2(rank + 2)
+                mrrs[k] += 1.0 / (rank + 1)
                 
     # 输出结果
     print("-" * 40)
@@ -287,13 +290,20 @@ def calculate_metrics(test_df, user_history_index, item_sim_index, ks=[50, 100, 
     print("-" * 40)
     metrics = {}
     for k in ks:
-        hr = hits[k] / total_users if total_users else 0.0
-        recall = hr
+        recall = recalls[k] / total_users if total_users else 0.0
         ndcg = ndcgs[k] / total_users if total_users else 0.0
-        metrics[f"@{k}"] = {"recall": recall, "hr": hr, "ndcg": ndcg}
+        mrr = mrrs[k] / total_users if total_users else 0.0
+        coverage = len(coverage_items[k]) / num_items if num_items else 0.0
+        metrics[f"@{k}"] = {
+            "recall": recall,
+            "ndcg": ndcg,
+            "mrr": mrr,
+            "coverage": coverage,
+        }
         print(f"Recall@{k}: {recall:.4f}")
-        print(f"HR@{k}: {hr:.4f}")
         print(f"NDCG@{k}: {ndcg:.4f}")
+        print(f"MRR@{k}: {mrr:.4f}")
+        print(f"Coverage@{k}: {coverage:.4f}")
     print("-" * 40)
     return metrics
 
@@ -314,7 +324,7 @@ def main():
     user_history_index = build_user_history_index(train_df)
     
     # 6. 评估
-    metrics = calculate_metrics(test_df, user_history_index, item_sim_index, ks=[50, 100, 200])
+    metrics = calculate_metrics(test_df, user_history_index, item_sim_index, num_items=len(movies), ks=[50, 100, 200])
     save_experiment_results(
         metrics,
         {
