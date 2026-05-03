@@ -14,12 +14,13 @@ import torch
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_RESULTS_ROOT = SCRIPT_DIR / "epoch_sweep_results"
-METRIC_NAMES = ["recall", "hr", "ndcg"]
+METRIC_NAMES = ["recall", "ndcg", "mrr", "coverage"]
 KS = [50, 100, 200]
 METRIC_DISPLAY_NAMES = {
     "recall": "Recall",
-    "hr": "HR",
     "ndcg": "NDCG",
+    "mrr": "MRR",
+    "coverage": "Coverage",
 }
 
 
@@ -85,7 +86,7 @@ def run_command(command, log_path):
 
 
 def parse_metrics_from_stdout(output):
-    pattern = re.compile(r"(Recall|HR|NDCG)@(\d+):\s*([0-9.]+)")
+    pattern = re.compile(r"(Recall|NDCG|MRR|Coverage)@(\d+):\s*([0-9.]+)")
     metrics = {}
     for metric_name, k, value in pattern.findall(output):
         metrics[f"{metric_name}@{k}"] = float(value)
@@ -107,8 +108,9 @@ def flatten_metrics(metrics_by_k):
     for k in KS:
         values = metrics_by_k.get(str(k)) or metrics_by_k.get(k) or {}
         row[f"Recall@{k}"] = values.get("recall")
-        row[f"HR@{k}"] = values.get("hr")
         row[f"NDCG@{k}"] = values.get("ndcg")
+        row[f"MRR@{k}"] = values.get("mrr")
+        row[f"Coverage@{k}"] = values.get("coverage")
     return row
 
 

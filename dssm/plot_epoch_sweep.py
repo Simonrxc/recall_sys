@@ -8,8 +8,9 @@ DEFAULT_RESULTS_ROOT = SCRIPT_DIR / "epoch_sweep_results"
 DEFAULT_PLOTS_ROOT = SCRIPT_DIR / "output" / "epoch_sweep_plots"
 METRIC_GROUPS = {
     "recall": ["Recall@50", "Recall@100", "Recall@200"],
-    "hr": ["HR@50", "HR@100", "HR@200"],
     "ndcg": ["NDCG@50", "NDCG@100", "NDCG@200"],
+    "mrr": ["MRR@50", "MRR@100", "MRR@200"],
+    "coverage": ["Coverage@50", "Coverage@100", "Coverage@200"],
 }
 
 
@@ -87,6 +88,31 @@ def plot_lines(records, columns, title, output_path, dpi):
     plt.close()
 
 
+def plot_metric_groups(records, metric_groups, title, output_path, dpi):
+    import matplotlib.pyplot as plt
+
+    epochs = [record["epoch"] for record in records]
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+    axes = axes.flatten()
+
+    for axis, (metric_name, columns) in zip(axes, metric_groups.items()):
+        for column in columns:
+            values = [record[column] for record in records]
+            axis.plot(epochs, values, marker="o", linewidth=2, label=column)
+
+        axis.set_title(metric_name.upper())
+        axis.set_xlabel("Epochs")
+        axis.set_ylabel("Metric Value")
+        axis.set_xticks(epochs)
+        axis.grid(True, linestyle="--", alpha=0.4)
+        axis.legend()
+
+    fig.suptitle(title, fontsize=16)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.savefig(output_path, dpi=dpi)
+    plt.close(fig)
+
+
 def main():
     args = build_parser().parse_args()
     result_dir = Path(args.result_dir).resolve() if args.result_dir else latest_result_dir()
@@ -102,10 +128,9 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     records = read_metrics(csv_path)
-    all_columns = [column for columns in METRIC_GROUPS.values() for column in columns]
-    plot_lines(
+    plot_metric_groups(
         records,
-        all_columns,
+        METRIC_GROUPS,
         "DSSM Epoch Sweep - All Metrics",
         output_dir / "all_metrics.png",
         args.dpi,

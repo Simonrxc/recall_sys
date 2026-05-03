@@ -9,7 +9,8 @@ from tqdm import tqdm
 
 def train(args):
     # Load Data
-    users, movies, ratings = load_data()
+    users, movies, ratings = load_data("train_ratings.csv")
+    print(f"Training with fixed train split: {len(ratings)} ratings")
     
     # Dataset
     train_dataset = MovieLensDataset(ratings, users, movies, mode=args.mode, neg_ratio=args.neg_ratio)
