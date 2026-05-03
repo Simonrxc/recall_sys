@@ -93,7 +93,7 @@ class MovieLensDataset(Dataset):
         all_genres = set()
         for g in movies['Genres']:
             all_genres.update(g.split('|'))
-        self.genre_encoder = {g: i+1 for i, g in enumerate(all_genres)} # 0 for padding
+        self.genre_encoder = {g: i+1 for i, g in enumerate(sorted(all_genres))} # 0 for padding
         self.num_genres = len(self.genre_encoder) + 1
         
         # 将 Movie 的 Genres 转换为定长列表 (e.g. max len 5)
