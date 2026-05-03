@@ -67,8 +67,9 @@ def save_experiment_results(metrics, config, output_dir=OUTPUT_DIR):
     }
     for k, values in metrics["by_k"].items():
         row[f"Recall@{k}"] = values["recall"]
-        row[f"HR@{k}"] = values["hr"]
         row[f"NDCG@{k}"] = values["ndcg"]
+        row[f"MRR@{k}"] = values["mrr"]
+        row[f"Coverage@{k}"] = values["coverage"]
 
     csv_path = os.path.join(output_dir, f"experiment_dssm_{timestamp}.csv")
     pd.DataFrame([row]).to_csv(csv_path, index=False)
@@ -109,12 +110,28 @@ def load_and_split_data():
     加载数据，并读取 convert_dataset.py 生成的固定 Leave-One-Out 划分。
     """
     print("Loading data and fixed train/test split...")
-    users, movies, ratings = load_data()
+    users, movies, _ = load_data()
     train_df, test_ratings = load_split_ratings()
     train_user_ids = set(train_df["UserID"].unique())
     test_df = test_ratings[test_ratings["UserID"].isin(train_user_ids)][["UserID", "MovieID"]].copy()
 
-    return users, movies, ratings, test_df
+    return users, movies, train_df, test_df
+
+
+def build_train_seen_index(train_df, dataset):
+    """建立训练集中用户已看电影索引，评估召回时需要过滤。"""
+    user_to_idx = {uid: idx for idx, uid in enumerate(dataset.user_encoder.classes_)}
+    movie_to_idx = {mid: idx for idx, mid in enumerate(dataset.movie_encoder.classes_)}
+    train_seen = {}
+
+    for uid, mid in train_df[["UserID", "MovieID"]].itertuples(index=False):
+        u_idx = user_to_idx.get(uid)
+        m_idx = movie_to_idx.get(mid)
+        if u_idx is None or m_idx is None:
+            continue
+        train_seen.setdefault(u_idx, set()).add(m_idx)
+
+    return train_seen
 
 def get_embeddings(model, dataset, device):
     """
@@ -167,11 +184,12 @@ def get_embeddings(model, dataset, device):
 
 def evaluate(args):
     # 1. 加载数据
-    users, movies, ratings, test_df = load_and_split_data()
+    users, movies, train_df, test_df = load_and_split_data()
     
     # 2. 初始化 Dataset (用于获取 Encoder 和特征)
     # 注意：这里会重新 fit encoder，只要数据源没变，结果一致
-    dataset = MovieLensDataset(ratings, users, movies, mode='pointwise')
+    dataset = MovieLensDataset(train_df, users, movies, mode='pointwise')
+    train_seen = build_train_seen_index(train_df, dataset)
     
     # 3. 加载模型
     print(f"Loading model from {args.model_path}...")
@@ -205,9 +223,10 @@ def evaluate(args):
     # 6. 评估
     print("Evaluating...")
     ks = [50, 100, 200]
-    hits = {k: 0 for k in ks}
     ndcgs = {k: 0 for k in ks}
     recalls = {k: 0.0 for k in ks}
+    mrrs = {k: 0.0 for k in ks}
+    coverage_items = {k: set() for k in ks}
     total = 0
     
     # 遍历测试集用户
@@ -256,11 +275,12 @@ def evaluate(args):
         with torch.no_grad():
             user_vecs = model.user_tower(u_id_tensor, u_gender, u_age, u_occ, u_zip).cpu().numpy()
             
-        # 检索 Top-K (最大 K)
+        # 先检索全部物品，再过滤训练集中已看物品，保证过滤后 Top-K 足够。
         max_k = max(ks)
+        search_k = item_vectors.shape[0]
         
         if faiss:
-            D, I = index.search(user_vecs, max_k)
+            D, I = index.search(user_vecs, search_k)
         else:
             # Numpy dot product
             scores = np.dot(user_vecs, item_vectors.T) # (B, N_items)
@@ -268,7 +288,7 @@ def evaluate(args):
             # argpartition + sort is faster than argsort
             I = []
             for j in range(len(scores)):
-                ind = np.argpartition(scores[j], -max_k)[-max_k:]
+                ind = np.argpartition(scores[j], -search_k)[-search_k:]
                 ind = ind[np.argsort(scores[j][ind])[::-1]]
                 I.append(ind)
             I = np.array(I)
@@ -281,16 +301,18 @@ def evaluate(args):
             except ValueError:
                 continue
                 
-            rec_list = I[j] # List of MovieID_idx
+            seen_items = train_seen.get(batch_uids_idx[j], set())
+            rec_list = np.array([mid for mid in I[j] if mid not in seen_items]) # List of MovieID_idx
             
             total += 1
             for k in ks:
                 top_k_recs = rec_list[:k]
+                coverage_items[k].update(top_k_recs.tolist())
                 if target_mid_idx in top_k_recs:
-                    hits[k] += 1
                     recalls[k] += 1.0
                     rank = np.where(top_k_recs == target_mid_idx)[0][0]
                     ndcgs[k] += 1.0 / math.log2(rank + 2)
+                    mrrs[k] += 1.0 / (rank + 1)
                     
     print("-" * 40)
     print("DSSM Evaluation Results:")
@@ -298,12 +320,19 @@ def evaluate(args):
     by_k = {}
     for k in ks:
         recall = recalls[k] / total if total else 0.0
-        hr = hits[k] / total if total else 0.0
         ndcg = ndcgs[k] / total if total else 0.0
-        by_k[k] = {"recall": recall, "hr": hr, "ndcg": ndcg}
+        mrr = mrrs[k] / total if total else 0.0
+        coverage = len(coverage_items[k]) / dataset.num_movies if dataset.num_movies else 0.0
+        by_k[k] = {
+            "recall": recall,
+            "ndcg": ndcg,
+            "mrr": mrr,
+            "coverage": coverage,
+        }
         print(f"Recall@{k}: {recall:.4f}")
-        print(f"HR@{k}: {hr:.4f}")
         print(f"NDCG@{k}: {ndcg:.4f}")
+        print(f"MRR@{k}: {mrr:.4f}")
+        print(f"Coverage@{k}: {coverage:.4f}")
     print("-" * 40)
 
     metrics = {
@@ -319,8 +348,9 @@ def evaluate(args):
         "retrieval_backend": "faiss" if faiss else "numpy",
         "num_users": len(users),
         "num_movies": len(movies),
-        "num_ratings": len(ratings),
+        "num_ratings": len(train_df),
         "num_test_users": len(test_df),
+        "filtered_train_seen": True,
     }
     save_experiment_results(metrics, config)
 

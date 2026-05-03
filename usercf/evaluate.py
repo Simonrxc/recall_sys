@@ -190,8 +190,9 @@ def save_experiment_results(metrics, metadata, output_dir=OUTPUT_DIR):
     }
     for k, values in metrics.items():
         row[f"Recall@{k}"] = values["recall"]
-        row[f"HR@{k}"] = values["hr"]
         row[f"NDCG@{k}"] = values["ndcg"]
+        row[f"MRR@{k}"] = values["mrr"]
+        row[f"Coverage@{k}"] = values["coverage"]
 
     pd.DataFrame([row]).to_csv(
         csv_path,
@@ -203,13 +204,14 @@ def save_experiment_results(metrics, metadata, output_dir=OUTPUT_DIR):
     print(f"Experiment data saved to {json_path} and {csv_path}")
 
 
-def calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set, ks=[3, 5, 10]):
+def calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set, num_items, ks=[3, 5, 10]):
     """计算指标"""
     print("\nCalculating metrics...")
     
-    hits = {k: 0 for k in ks}
     recalls = {k: 0 for k in ks}
     ndcgs = {k: 0 for k in ks}
+    mrrs = {k: 0.0 for k in ks}
+    coverage_items = {k: set() for k in ks}
     total_users = 0
     
     test_data = test_df[['UserID', 'MovieID']].values
@@ -232,11 +234,12 @@ def calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set,
         
         for k in ks:
             top_k_recs = rec_list[:k]
+            coverage_items[k].update(top_k_recs)
             if target_mid in top_k_recs:
-                hits[k] += 1
                 recalls[k] += 1
                 rank = top_k_recs.index(target_mid)
                 ndcgs[k] += 1.0 / math.log2(rank + 2)
+                mrrs[k] += 1.0 / (rank + 1)
                 
     print("-" * 40)
     print("UserCF Evaluation Results:")
@@ -244,12 +247,19 @@ def calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set,
     metrics = {}
     for k in ks:
         recall = recalls[k] / total_users if total_users else 0.0
-        hr = hits[k] / total_users if total_users else 0.0
         ndcg = ndcgs[k] / total_users if total_users else 0.0
-        metrics[k] = {"recall": recall, "hr": hr, "ndcg": ndcg}
+        mrr = mrrs[k] / total_users if total_users else 0.0
+        coverage = len(coverage_items[k]) / num_items if num_items else 0.0
+        metrics[k] = {
+            "recall": recall,
+            "ndcg": ndcg,
+            "mrr": mrr,
+            "coverage": coverage,
+        }
         print(f"Recall@{k}: {recall:.4f}")
-        print(f"HR@{k}: {hr:.4f}")
         print(f"NDCG@{k}: {ndcg:.4f}")
+        print(f"MRR@{k}: {mrr:.4f}")
+        print(f"Coverage@{k}: {coverage:.4f}")
     print("-" * 40)
     return metrics
 
@@ -262,7 +272,8 @@ def main():
     
     # 3. 评估
     ks = [50, 100, 200]
-    metrics = calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set, ks=ks)
+    num_items = pd.concat([train_df["MovieID"], test_df["MovieID"]]).nunique()
+    metrics = calculate_metrics(test_df, user_sim_index, user_item_history, user_item_set, num_items=num_items, ks=ks)
     save_experiment_results(
         metrics,
         metadata={
